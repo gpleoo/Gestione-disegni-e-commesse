@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestione Disegni e Commesse</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📐 Gestione Disegni e Commesse</h1>
+            <button id="addDrawingBtn" class="btn-primary">+ Nuovo Disegno</button>
+        </header>
+
+        <div class="filters-section">
+            <h3>🔍 Filtri di Ricerca</h3>
+            <div class="filters-grid">
+                <input type="text" id="filterNumero" placeholder="Filtra per Numero Disegno">
+                <input type="text" id="filterCliente" placeholder="Filtra per Cliente">
+                <input type="text" id="filterCantiere" placeholder="Filtra per Cantiere">
+                <input type="text" id="filterOggetto" placeholder="Filtra per Oggetto Lavoro">
+                <button id="clearFilters" class="btn-secondary">Azzera Filtri</button>
+            </div>
+        </div>
+
+        <div class="table-container">
+            <table id="drawingsTable">
+                <thead>
+                    <tr>
+                        <th>NUMERO DISEGNO</th>
+                        <th>CLIENTE</th>
+                        <th>CANTIERE</th>
+                        <th>OGGETTO LAVORO</th>
+                        <th>DISEGNI OFFICINA</th>
+                        <th>DISEGNI CANTIERE</th>
+                        <th>RDO MATERIALI</th>
+                        <th>ORDINE MATERIALI</th>
+                        <th>ARRIVO MATERIALE</th>
+                        <th>RDO BULLONERIA</th>
+                        <th>ORDINE BULLONERIA</th>
+                        <th>ARRIVO BULLONERIA</th>
+                        <th>DXF PIASTRE</th>
+                        <th>AZIONI</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    <!-- Righe generate dinamicamente -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Modal per aggiungere/modificare disegno -->
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">Nuovo Disegno</h2>
+                <span class="close">&times;</span>
+            </div>
+            <form id="drawingForm">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="numeroDisegno">Numero Disegno *</label>
+                        <input type="text" id="numeroDisegno" required>
+                        <small>Es: 910/2025</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="cliente">Cliente *</label>
+                        <input type="text" id="cliente" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="cantiere">Cantiere</label>
+                        <input type="text" id="cantiere">
+                    </div>
+
+                    <div class="form-group full-width">
+                        <label for="oggettoLavoro">Oggetto Lavoro</label>
+                        <input type="text" id="oggettoLavoro">
+                    </div>
+                </div>
+
+                <h3 class="section-title">Disegni Officina</h3>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="disegniOfficinaConsegnato">Consegnato a</label>
+                        <input type="text" id="disegniOfficinaConsegnato">
+                    </div>
+                    <div class="form-group">
+                        <label for="disegniOfficinaData">Data</label>
+                        <input type="date" id="disegniOfficinaData">
+                    </div>
+                </div>
+
+                <h3 class="section-title">Disegni Cantiere</h3>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="disegniCantiereConsegnato">Consegnato a</label>
+                        <input type="text" id="disegniCantiereConsegnato">
+                    </div>
+                    <div class="form-group">
+                        <label for="disegniCantiereData">Data</label>
+                        <input type="date" id="disegniCantiereData">
+                    </div>
+                </div>
+
+                <h3 class="section-title">RDO Materiali</h3>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="rdoMaterialiConsegnato">Consegnato a</label>
+                        <input type="text" id="rdoMaterialiConsegnato">
+                    </div>
+                    <div class="form-group">
+                        <label for="rdoMaterialiData">Data</label>
+                        <input type="date" id="rdoMaterialiData">
+                    </div>
+                </div>
+
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="ordineMateriali">Ordine Materiali</label>
+                        <input type="text" id="ordineMateriali">
+                    </div>
+                    <div class="form-group">
+                        <label for="arrivoMateriale">Arrivo Materiale</label>
+                        <input type="date" id="arrivoMateriale">
+                    </div>
+                </div>
+
+                <h3 class="section-title">RDO Bulloneria</h3>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="rdoBulloneriaConsegnato">Consegnato a</label>
+                        <input type="text" id="rdoBulloneriaConsegnato">
+                    </div>
+                    <div class="form-group">
+                        <label for="rdoBulloneriaData">Data</label>
+                        <input type="date" id="rdoBulloneriaData">
+                    </div>
+                </div>
+
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="ordineBulloneria">Ordine Bulloneria</label>
+                        <input type="text" id="ordineBulloneria">
+                    </div>
+                    <div class="form-group">
+                        <label for="arrivoBulloneria">Arrivo Bulloneria</label>
+                        <input type="date" id="arrivoBulloneria">
+                    </div>
+                </div>
+
+                <h3 class="section-title">DXF Piastre</h3>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="dxfPiastreConsegnato">Consegnato a</label>
+                        <input type="text" id="dxfPiastreConsegnato">
+                    </div>
+                    <div class="form-group">
+                        <label for="dxfPiastreData">Data</label>
+                        <input type="date" id="dxfPiastreData">
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn-primary">Salva</button>
+                    <button type="button" id="cancelBtn" class="btn-secondary">Annulla</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
