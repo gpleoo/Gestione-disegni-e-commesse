@@ -32,11 +32,7 @@ class DrawingsManager {
             this.openModal();
         });
 
-        // Chiusura modal
-        document.querySelector('.close').addEventListener('click', () => {
-            this.closeModal();
-        });
-
+        // Bottone annulla
         document.getElementById('cancelBtn').addEventListener('click', () => {
             this.closeModal();
         });
