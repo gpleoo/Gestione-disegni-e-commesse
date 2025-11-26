@@ -162,6 +162,9 @@ class DrawingsManager {
                 consegnato: document.getElementById('dxfPiastreConsegnato').value,
                 data: document.getElementById('dxfPiastreData').value
             },
+            stato: this.currentEditId ?
+                this.drawings.find(d => d.id === this.currentEditId)?.stato || 'preventivo' :
+                'preventivo', // I nuovi disegni partono come preventivi
             createdAt: this.currentEditId ?
                 this.drawings.find(d => d.id === this.currentEditId)?.createdAt || Date.now() :
                 Date.now()
@@ -189,7 +192,25 @@ class DrawingsManager {
         }
     }
 
-    formatCellData(data, isRequired = false) {
+    toggleCommessa(id) {
+        const drawing = this.drawings.find(d => d.id === id);
+        if (drawing) {
+            if (drawing.stato === 'preventivo') {
+                drawing.stato = 'commessa';
+            } else {
+                drawing.stato = 'preventivo';
+            }
+            this.saveDrawings();
+            this.renderTable();
+        }
+    }
+
+    formatCellData(data, isRequired = false, isPreventivo = false) {
+        // Se è un preventivo, mostra solo "PREVENTIVO"
+        if (isPreventivo) {
+            return '<div class="cell-preventivo">📋 PREVENTIVO</div>';
+        }
+
         // Caso 1: Completamente vuoto
         if (!data || (!data.consegnato && !data.data)) {
             if (isRequired) {
@@ -234,7 +255,12 @@ class DrawingsManager {
         return date.toLocaleDateString('it-IT');
     }
 
-    getCellClass(data, isRequired = false) {
+    getCellClass(data, isRequired = false, isPreventivo = false) {
+        // Se è un preventivo, usa lo stile preventivo
+        if (isPreventivo) {
+            return 'cell-preventivo-bg';
+        }
+
         // Caso 1: Completamente vuoto
         if (!data || (!data.consegnato && !data.data)) {
             return isRequired ? 'cell-incomplete' : '';
@@ -271,36 +297,45 @@ class DrawingsManager {
         }
 
         tbody.innerHTML = sortedDrawings.map(drawing => {
-            // Determina se il DXF Piastre è obbligatorio (se è una commessa)
-            const isDxfRequired = this.isCommessa(drawing);
+            // Determina se è un preventivo o una commessa
+            const isPreventivo = drawing.stato === 'preventivo';
+            const isDxfRequired = !isPreventivo; // DXF obbligatorio solo per commesse
 
             return `
-                <tr>
-                    <td><strong>${drawing.numeroDisegno}</strong></td>
+                <tr class="${isPreventivo ? 'row-preventivo' : ''}">
+                    <td>
+                        <strong>${drawing.numeroDisegno}</strong>
+                        ${isPreventivo ? '<br><span class="badge-preventivo">PREVENTIVO</span>' : '<span class="badge-commessa">COMMESSA</span>'}
+                    </td>
                     <td>${drawing.cliente || '-'}</td>
                     <td>${drawing.cantiere || '-'}</td>
                     <td>${drawing.oggettoLavoro || '-'}</td>
-                    <td class="${this.getCellClass(drawing.disegniOfficina, true)}">
-                        ${this.formatCellData(drawing.disegniOfficina, true)}
+                    <td class="${this.getCellClass(drawing.disegniOfficina, true, isPreventivo)}">
+                        ${this.formatCellData(drawing.disegniOfficina, true, isPreventivo)}
                     </td>
-                    <td class="${this.getCellClass(drawing.disegniCantiere, true)}">
-                        ${this.formatCellData(drawing.disegniCantiere, true)}
+                    <td class="${this.getCellClass(drawing.disegniCantiere, true, isPreventivo)}">
+                        ${this.formatCellData(drawing.disegniCantiere, true, isPreventivo)}
                     </td>
-                    <td class="${this.getCellClass(drawing.rdoMateriali, true)}">
-                        ${this.formatCellData(drawing.rdoMateriali, true)}
+                    <td class="${this.getCellClass(drawing.rdoMateriali, true, isPreventivo)}">
+                        ${this.formatCellData(drawing.rdoMateriali, true, isPreventivo)}
                     </td>
                     <td>${drawing.ordineMateriali || '-'}</td>
                     <td>${this.formatDate(drawing.arrivoMateriale)}</td>
-                    <td class="${this.getCellClass(drawing.rdoBulloneria, true)}">
-                        ${this.formatCellData(drawing.rdoBulloneria, true)}
+                    <td class="${this.getCellClass(drawing.rdoBulloneria, true, isPreventivo)}">
+                        ${this.formatCellData(drawing.rdoBulloneria, true, isPreventivo)}
                     </td>
                     <td>${drawing.ordineBulloneria || '-'}</td>
                     <td>${this.formatDate(drawing.arrivoBulloneria)}</td>
-                    <td class="${this.getCellClass(drawing.dxfPiastre, isDxfRequired)}">
-                        ${this.formatCellData(drawing.dxfPiastre, isDxfRequired)}
+                    <td class="${this.getCellClass(drawing.dxfPiastre, isDxfRequired, isPreventivo)}">
+                        ${this.formatCellData(drawing.dxfPiastre, isDxfRequired, isPreventivo)}
                     </td>
                     <td>
                         <div class="actions-cell">
+                            <button class="btn-toggle-commessa ${isPreventivo ? 'btn-activate' : 'btn-deactivate'}"
+                                    onclick="manager.toggleCommessa(${drawing.id})"
+                                    title="${isPreventivo ? 'Attiva come Commessa' : 'Torna a Preventivo'}">
+                                ${isPreventivo ? '🚀 Attiva Commessa' : '📋 Torna a Preventivo'}
+                            </button>
                             <button class="btn-edit" onclick="manager.openModal(${JSON.stringify(drawing).replace(/"/g, '&quot;')})">
                                 ✏️ Modifica
                             </button>
