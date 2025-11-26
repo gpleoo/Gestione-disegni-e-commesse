@@ -395,7 +395,7 @@ form {
     letter-spacing: 0.5px;
 }
 
-.form-group input {
+.form-group input, .form-group textarea {
     padding: 12px 14px;
     background-color: var(--bg-tertiary);
     border: 1px solid var(--border-color);
@@ -403,9 +403,15 @@ form {
     color: var(--text-primary);
     font-size: 14px;
     transition: all 0.3s ease;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
-.form-group input:focus {
+.form-group textarea {
+    resize: vertical;
+    min-height: 100px;
+}
+
+.form-group input:focus, .form-group textarea:focus {
     outline: none;
     border-color: var(--accent-primary);
     box-shadow: 0 0 0 3px rgba(74, 158, 255, 0.1);
@@ -433,6 +439,34 @@ form {
     margin-top: 30px;
     padding-top: 20px;
     border-top: 1px solid var(--border-color);
+}
+
+/* Note */
+.cell-notes-pending {
+    background-color: rgba(255, 68, 68, 0.15) !important;
+    border-left: 4px solid var(--warning-color);
+}
+
+.cell-notes-complete {
+    background-color: var(--success-bg) !important;
+    border-left: 4px solid var(--success-color);
+}
+
+.notes-list {
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.note-item {
+    padding: 3px 0;
+    color: var(--warning-color);
+    font-weight: 600;
+}
+
+.notes-empty {
+    color: var(--success-color);
+    font-weight: 600;
+    font-style: italic;
 }
 
 /* Responsive */

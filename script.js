@@ -129,6 +129,8 @@ class DrawingsManager {
 
         document.getElementById('dxfPiastreConsegnato').value = drawing.dxfPiastre?.consegnato || '';
         document.getElementById('dxfPiastreData').value = drawing.dxfPiastre?.data || '';
+
+        document.getElementById('note').value = drawing.note || '';
     }
 
     saveDrawing() {
@@ -162,6 +164,7 @@ class DrawingsManager {
                 consegnato: document.getElementById('dxfPiastreConsegnato').value,
                 data: document.getElementById('dxfPiastreData').value
             },
+            note: document.getElementById('note').value,
             stato: this.currentEditId ?
                 this.drawings.find(d => d.id === this.currentEditId)?.stato || 'preventivo' :
                 'preventivo', // I nuovi disegni partono come preventivi
@@ -278,6 +281,27 @@ class DrawingsManager {
         return 'cell-complete';
     }
 
+    formatNotes(note) {
+        if (!note || note.trim() === '') {
+            return {
+                html: '<div class="notes-empty">✓ Nessuna nota</div>',
+                hasNotes: false
+            };
+        }
+
+        const lines = note.trim().split('\n').filter(line => line.trim() !== '');
+        let html = '<div class="notes-list">';
+        lines.forEach(line => {
+            html += `<div class="note-item">• ${line.trim()}</div>`;
+        });
+        html += '</div>';
+
+        return {
+            html: html,
+            hasNotes: true
+        };
+    }
+
     renderTable(filteredDrawings = null) {
         const tbody = document.getElementById('tableBody');
         const drawingsToRender = filteredDrawings || this.drawings;
@@ -288,7 +312,7 @@ class DrawingsManager {
         if (sortedDrawings.length === 0) {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="14" style="text-align: center; padding: 40px; color: var(--text-secondary);">
+                    <td colspan="15" style="text-align: center; padding: 40px; color: var(--text-secondary);">
                         Nessun disegno presente. Clicca su "+ Nuovo Disegno" per iniziare.
                     </td>
                 </tr>
@@ -328,6 +352,12 @@ class DrawingsManager {
                     <td>${this.formatDate(drawing.arrivoBulloneria)}</td>
                     <td class="${this.getCellClass(drawing.dxfPiastre, isDxfRequired, isPreventivo)}">
                         ${this.formatCellData(drawing.dxfPiastre, isDxfRequired, isPreventivo)}
+                    </td>
+                    <td class="${(() => {
+                        const notesData = this.formatNotes(drawing.note);
+                        return notesData.hasNotes ? 'cell-notes-pending' : 'cell-notes-complete';
+                    })()}">
+                        ${this.formatNotes(drawing.note).html}
                     </td>
                     <td>
                         <div class="actions-cell">
