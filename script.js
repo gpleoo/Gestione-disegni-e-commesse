@@ -548,9 +548,6 @@ class DrawingsManager {
                             <button class="btn-edit" onclick="manager.openModal(${JSON.stringify(drawing).replace(/"/g, '&quot;')})">
                                 ✏️ Modifica
                             </button>
-                            <button class="btn-delete" onclick="manager.deleteDrawing(${drawing.id})">
-                                🗑️ Elimina
-                            </button>
                         </div>
                     </td>
                 </tr>
