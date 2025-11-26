@@ -13,7 +13,17 @@ class DrawingsManager {
     }
 
     saveDrawings() {
-        localStorage.setItem('drawings', JSON.stringify(this.drawings));
+        try {
+            localStorage.setItem('drawings', JSON.stringify(this.drawings));
+            console.log('✅ Dati salvati con successo:', this.drawings.length, 'disegni');
+        } catch (error) {
+            console.error('❌ ERRORE nel salvataggio:', error);
+            alert('ERRORE: Impossibile salvare i dati!\n\n' +
+                  'Possibili cause:\n' +
+                  '1. localStorage bloccato (file:// invece di http://)\n' +
+                  '2. Spazio localStorage esaurito\n\n' +
+                  'Errore: ' + error.message);
+        }
     }
 
     initializeEventListeners() {
@@ -134,6 +144,7 @@ class DrawingsManager {
     }
 
     saveDrawing() {
+        console.log('📝 Salvataggio in corso...');
         const drawingData = {
             id: this.currentEditId || Date.now(),
             numeroDisegno: document.getElementById('numeroDisegno').value,
@@ -177,14 +188,20 @@ class DrawingsManager {
             // Modifica esistente
             const index = this.drawings.findIndex(d => d.id === this.currentEditId);
             this.drawings[index] = drawingData;
+            console.log('✏️ Disegno modificato:', drawingData.numeroDisegno);
         } else {
             // Nuovo disegno
             this.drawings.push(drawingData);
+            console.log('➕ Nuovo disegno aggiunto:', drawingData.numeroDisegno);
         }
 
         this.saveDrawings();
         this.renderTable();
         this.closeModal();
+
+        // Conferma visiva
+        const message = this.currentEditId ? 'Disegno modificato!' : 'Disegno salvato!';
+        console.log('✅', message);
     }
 
     deleteDrawing(id) {
