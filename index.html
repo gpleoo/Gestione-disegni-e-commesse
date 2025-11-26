@@ -57,7 +57,10 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h2 id="modalTitle">Nuovo Disegno</h2>
-                <span class="close">&times;</span>
+                <div class="modal-header-actions">
+                    <button type="submit" form="drawingForm" class="btn-primary">💾 Salva</button>
+                    <button type="button" id="cancelBtn" class="btn-secondary">✕ Annulla</button>
+                </div>
             </div>
             <form id="drawingForm">
                 <div class="form-grid">
@@ -170,11 +173,6 @@
                     <label for="note">Note / Cose da fare</label>
                     <textarea id="note" rows="5" placeholder="Es:&#10;- Ordinare lamiere grecate&#10;- Modificare interassi colonne&#10;- Verificare quote&#10;..."></textarea>
                     <small>Inserisci le note, una per riga. Quando ci sono note, il campo apparirà in rosso.</small>
-                </div>
-
-                <div class="form-actions">
-                    <button type="submit" class="btn-primary">Salva</button>
-                    <button type="button" id="cancelBtn" class="btn-secondary">Annulla</button>
                 </div>
             </form>
         </div>
