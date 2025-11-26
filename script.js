@@ -295,6 +295,37 @@ class DrawingsManager {
         };
     }
 
+    formatSimpleField(value, isRequired, isPreventivo) {
+        // Se è preventivo, mostra solo il valore
+        if (isPreventivo) {
+            return value || '-';
+        }
+
+        // Se è commessa e il campo è richiesto
+        if (isRequired) {
+            if (!value || value.trim() === '') {
+                return '<div class="cell-empty">⚠️ NON INSERITO</div>';
+            }
+        }
+
+        return value || '-';
+    }
+
+    getSimpleFieldClass(value, isRequired, isPreventivo) {
+        if (isPreventivo) {
+            return '';
+        }
+
+        if (isRequired) {
+            if (!value || value.trim() === '') {
+                return 'cell-incomplete';
+            }
+            return 'cell-complete';
+        }
+
+        return '';
+    }
+
     renderTable(filteredDrawings = null) {
         const tbody = document.getElementById('tableBody');
         const drawingsToRender = filteredDrawings || this.drawings;
@@ -336,13 +367,25 @@ class DrawingsManager {
                     <td class="${this.getCellClass(drawing.rdoMateriali, true, isPreventivo)}">
                         ${this.formatCellData(drawing.rdoMateriali, true, isPreventivo)}
                     </td>
-                    <td>${drawing.ordineMateriali || '-'}</td>
-                    <td>${this.formatDate(drawing.arrivoMateriale)}</td>
+                    <td class="${this.getSimpleFieldClass(drawing.ordineMateriali, !isPreventivo, isPreventivo)}">
+                        ${this.formatSimpleField(drawing.ordineMateriali, !isPreventivo, isPreventivo)}
+                    </td>
+                    <td class="${this.getSimpleFieldClass(drawing.arrivoMateriale, !isPreventivo, isPreventivo)}">
+                        ${!isPreventivo && (!drawing.arrivoMateriale || drawing.arrivoMateriale.trim() === '')
+                            ? '<div class="cell-empty">⚠️ NON INSERITO</div>'
+                            : this.formatDate(drawing.arrivoMateriale)}
+                    </td>
                     <td class="${this.getCellClass(drawing.rdoBulloneria, true, isPreventivo)}">
                         ${this.formatCellData(drawing.rdoBulloneria, true, isPreventivo)}
                     </td>
-                    <td>${drawing.ordineBulloneria || '-'}</td>
-                    <td>${this.formatDate(drawing.arrivoBulloneria)}</td>
+                    <td class="${this.getSimpleFieldClass(drawing.ordineBulloneria, !isPreventivo, isPreventivo)}">
+                        ${this.formatSimpleField(drawing.ordineBulloneria, !isPreventivo, isPreventivo)}
+                    </td>
+                    <td class="${this.getSimpleFieldClass(drawing.arrivoBulloneria, !isPreventivo, isPreventivo)}">
+                        ${!isPreventivo && (!drawing.arrivoBulloneria || drawing.arrivoBulloneria.trim() === '')
+                            ? '<div class="cell-empty">⚠️ NON INSERITO</div>'
+                            : this.formatDate(drawing.arrivoBulloneria)}
+                    </td>
                     <td class="${this.getCellClass(drawing.dxfPiastre, isDxfRequired, isPreventivo)}">
                         ${this.formatCellData(drawing.dxfPiastre, isDxfRequired, isPreventivo)}
                     </td>
