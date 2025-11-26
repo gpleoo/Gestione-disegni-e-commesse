@@ -178,6 +178,23 @@ tbody tr:hover {
     border-left: 3px solid var(--success-color);
 }
 
+/* Celle parzialmente compilate (arancione/giallo) */
+.cell-partial {
+    background-color: rgba(255, 165, 0, 0.15) !important;
+    border-left: 3px solid #ffa500;
+}
+
+.cell-warning {
+    color: #ffa500;
+    font-weight: 700;
+    font-size: 12px;
+    margin-top: 6px;
+    padding: 4px 8px;
+    background-color: rgba(255, 165, 0, 0.2);
+    border-radius: 4px;
+    display: inline-block;
+}
+
 /* Dati nelle celle */
 .cell-data {
     font-size: 13px;

@@ -190,6 +190,7 @@ class DrawingsManager {
     }
 
     formatCellData(data, isRequired = false) {
+        // Caso 1: Completamente vuoto
         if (!data || (!data.consegnato && !data.data)) {
             if (isRequired) {
                 return `<div class="cell-empty">⚠️ NON CONSEGNATO</div>`;
@@ -197,13 +198,32 @@ class DrawingsManager {
             return '<div class="cell-empty">-</div>';
         }
 
+        // Caso 2: Parzialmente compilato (manca consegnato a OPPURE manca data)
+        const hasConsegnato = data.consegnato && data.consegnato.trim() !== '';
+        const hasData = data.data && data.data.trim() !== '';
+
+        if (hasConsegnato && !hasData) {
+            return `
+                <div class="cell-data cell-partial">
+                    <div><strong>A:</strong> ${data.consegnato}</div>
+                    <div class="cell-warning">⚠️ MANCA DATA CONSEGNA</div>
+                </div>
+            `;
+        }
+
+        if (!hasConsegnato && hasData) {
+            return `
+                <div class="cell-data cell-partial">
+                    <div><strong>Data:</strong> ${this.formatDate(data.data)}</div>
+                    <div class="cell-warning">⚠️ MANCA DESTINATARIO</div>
+                </div>
+            `;
+        }
+
+        // Caso 3: Completamente compilato
         let html = '<div class="cell-data">';
-        if (data.consegnato) {
-            html += `<div><strong>A:</strong> ${data.consegnato}</div>`;
-        }
-        if (data.data) {
-            html += `<div><strong>Data:</strong> ${this.formatDate(data.data)}</div>`;
-        }
+        html += `<div><strong>A:</strong> ${data.consegnato}</div>`;
+        html += `<div><strong>Data:</strong> ${this.formatDate(data.data)}</div>`;
         html += '</div>';
         return html;
     }
@@ -215,9 +235,20 @@ class DrawingsManager {
     }
 
     getCellClass(data, isRequired = false) {
+        // Caso 1: Completamente vuoto
         if (!data || (!data.consegnato && !data.data)) {
             return isRequired ? 'cell-incomplete' : '';
         }
+
+        // Caso 2: Parzialmente compilato
+        const hasConsegnato = data.consegnato && data.consegnato.trim() !== '';
+        const hasData = data.data && data.data.trim() !== '';
+
+        if ((hasConsegnato && !hasData) || (!hasConsegnato && hasData)) {
+            return 'cell-partial';
+        }
+
+        // Caso 3: Completamente compilato
         return 'cell-complete';
     }
 
