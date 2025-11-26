@@ -3,13 +3,24 @@ class DrawingsManager {
     constructor() {
         this.drawings = this.loadDrawings();
         this.currentEditId = null;
+        this.isAdmin = this.loadAdminStatus();
+        this.adminPassword = 'admin123'; // CAMBIA QUESTA PASSWORD!
         this.initializeEventListeners();
+        this.updateUserInterface();
         this.renderTable();
     }
 
     loadDrawings() {
         const stored = localStorage.getItem('drawings');
         return stored ? JSON.parse(stored) : [];
+    }
+
+    loadAdminStatus() {
+        return localStorage.getItem('isAdmin') === 'true';
+    }
+
+    saveAdminStatus() {
+        localStorage.setItem('isAdmin', this.isAdmin);
     }
 
     saveDrawings() {
@@ -40,8 +51,12 @@ class DrawingsManager {
         // Click fuori dal modal
         window.addEventListener('click', (e) => {
             const modal = document.getElementById('modal');
+            const adminModal = document.getElementById('adminModal');
             if (e.target === modal) {
                 this.closeModal();
+            }
+            if (e.target === adminModal) {
+                this.closeAdminModal();
             }
         });
 
@@ -49,6 +64,28 @@ class DrawingsManager {
         document.getElementById('drawingForm').addEventListener('submit', (e) => {
             e.preventDefault();
             this.saveDrawing();
+        });
+
+        // Toggle admin
+        document.getElementById('toggleAdminBtn').addEventListener('click', () => {
+            if (this.isAdmin) {
+                this.logout();
+            } else {
+                this.openAdminModal();
+            }
+        });
+
+        // Admin form
+        document.getElementById('adminForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.checkAdminPassword();
+        });
+
+        // Chiudi admin modal
+        document.querySelectorAll('.close-admin').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this.closeAdminModal();
+            });
         });
 
         // Filtri
@@ -85,12 +122,105 @@ class DrawingsManager {
         }
 
         modal.style.display = 'block';
+        this.setFieldPermissions();
     }
 
     closeModal() {
         document.getElementById('modal').style.display = 'none';
         document.getElementById('drawingForm').reset();
         this.currentEditId = null;
+    }
+
+    openAdminModal() {
+        document.getElementById('adminModal').style.display = 'block';
+        document.getElementById('adminPassword').value = '';
+    }
+
+    closeAdminModal() {
+        document.getElementById('adminModal').style.display = 'none';
+        document.getElementById('adminPassword').value = '';
+    }
+
+    checkAdminPassword() {
+        const password = document.getElementById('adminPassword').value;
+        if (password === this.adminPassword) {
+            this.isAdmin = true;
+            this.saveAdminStatus();
+            this.updateUserInterface();
+            this.closeAdminModal();
+            alert('✅ Login amministratore effettuato!');
+        } else {
+            alert('❌ Password errata!');
+            document.getElementById('adminPassword').value = '';
+        }
+    }
+
+    logout() {
+        if (confirm('Vuoi uscire dalla modalità amministratore?')) {
+            this.isAdmin = false;
+            this.saveAdminStatus();
+            this.updateUserInterface();
+        }
+    }
+
+    updateUserInterface() {
+        const userRole = document.getElementById('userRole');
+        const toggleBtn = document.getElementById('toggleAdminBtn');
+
+        if (this.isAdmin) {
+            userRole.textContent = '👑 Amministratore';
+            userRole.classList.add('admin');
+            toggleBtn.textContent = '🚪 Logout';
+            toggleBtn.classList.add('logout');
+        } else {
+            userRole.textContent = '👤 Utente';
+            userRole.classList.remove('admin');
+            toggleBtn.textContent = '🔐 Login Admin';
+            toggleBtn.classList.remove('logout');
+        }
+    }
+
+    setFieldPermissions() {
+        // Campi che SOLO l'admin può modificare
+        const adminOnlyFields = [
+            'numeroDisegno', 'cliente', 'cantiere', 'oggettoLavoro',
+            'disegniOfficinaConsegnato', 'disegniOfficinaData',
+            'disegniCantiereConsegnato', 'disegniCantiereData',
+            'rdoMaterialiConsegnato', 'rdoMaterialiData',
+            'rdoBulloneriaConsegnato', 'rdoBulloneriaData',
+            'dxfPiastreConsegnato', 'dxfPiastreData',
+            'note'
+        ];
+
+        // Campi che TUTTI possono modificare
+        const userFields = [
+            'ordineMateriali', 'arrivoMateriale',
+            'ordineBulloneria', 'arrivoBulloneria'
+        ];
+
+        if (!this.isAdmin) {
+            // Disabilita i campi admin-only
+            adminOnlyFields.forEach(fieldId => {
+                const field = document.getElementById(fieldId);
+                if (field) {
+                    field.disabled = true;
+                    field.style.backgroundColor = 'var(--bg-primary)';
+                    field.style.opacity = '0.6';
+                    field.style.cursor = 'not-allowed';
+                }
+            });
+        } else {
+            // Abilita tutti i campi
+            [...adminOnlyFields, ...userFields].forEach(fieldId => {
+                const field = document.getElementById(fieldId);
+                if (field) {
+                    field.disabled = false;
+                    field.style.backgroundColor = '';
+                    field.style.opacity = '';
+                    field.style.cursor = '';
+                }
+            });
+        }
     }
 
     suggestNextNumber() {
@@ -297,13 +427,13 @@ class DrawingsManager {
     formatNotes(note) {
         if (!note || note.trim() === '') {
             return {
-                html: '<div class="notes-status-none">NESSUNA</div>',
+                html: '<div class="notes-status-none">Nessuna</div>',
                 hasNotes: false
             };
         }
 
         return {
-            html: '<div class="notes-status-present">PRESENTI</div>',
+            html: '<div class="notes-status-present">Presenti</div>',
             hasNotes: true
         };
     }

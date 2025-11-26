@@ -10,7 +10,13 @@
     <div class="container">
         <header>
             <h1>📐 Gestione Disegni e Commesse</h1>
-            <button id="addDrawingBtn" class="btn-primary">+ Nuovo Disegno</button>
+            <div class="header-actions">
+                <div id="userStatus" class="user-status">
+                    <span id="userRole">👤 Utente</span>
+                    <button id="toggleAdminBtn" class="btn-admin">🔐 Login Admin</button>
+                </div>
+                <button id="addDrawingBtn" class="btn-primary">+ Nuovo Disegno</button>
+            </div>
         </header>
 
         <div class="filters-section">
@@ -173,6 +179,29 @@
                     <label for="note">Note / Cose da fare</label>
                     <textarea id="note" rows="5" placeholder="Es:&#10;- Ordinare lamiere grecate&#10;- Modificare interassi colonne&#10;- Verificare quote&#10;..."></textarea>
                     <small>Inserisci le note, una per riga. Quando ci sono note, il campo apparirà in rosso.</small>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Login Admin -->
+    <div id="adminModal" class="modal">
+        <div class="modal-content" style="max-width: 400px;">
+            <div class="modal-header">
+                <h2>🔐 Login Amministratore</h2>
+                <span class="close-admin">&times;</span>
+            </div>
+            <form id="adminForm">
+                <div style="padding: 30px;">
+                    <div class="form-group">
+                        <label for="adminPassword">Password Admin</label>
+                        <input type="password" id="adminPassword" required placeholder="Inserisci password">
+                        <small>Solo gli amministratori possono modificare tutti i campi</small>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn-primary">✓ Accedi</button>
+                        <button type="button" class="btn-secondary close-admin">Annulla</button>
+                    </div>
                 </div>
             </form>
         </div>
