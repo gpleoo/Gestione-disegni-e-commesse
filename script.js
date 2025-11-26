@@ -284,20 +284,13 @@ class DrawingsManager {
     formatNotes(note) {
         if (!note || note.trim() === '') {
             return {
-                html: '<div class="notes-empty">✓ Nessuna nota</div>',
+                html: '<div class="notes-status-none">NESSUNA</div>',
                 hasNotes: false
             };
         }
 
-        const lines = note.trim().split('\n').filter(line => line.trim() !== '');
-        let html = '<div class="notes-list">';
-        lines.forEach(line => {
-            html += `<div class="note-item">• ${line.trim()}</div>`;
-        });
-        html += '</div>';
-
         return {
-            html: html,
+            html: '<div class="notes-status-present">PRESENTI</div>',
             hasNotes: true
         };
     }

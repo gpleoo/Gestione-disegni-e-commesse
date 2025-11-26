@@ -129,7 +129,7 @@ header h1 {
 table {
     width: 100%;
     border-collapse: collapse;
-    min-width: 1800px;
+    table-layout: fixed;
 }
 
 thead {
@@ -140,22 +140,26 @@ thead {
 }
 
 th {
-    padding: 16px 12px;
+    padding: 8px 6px;
     text-align: left;
     font-weight: 600;
-    font-size: 13px;
+    font-size: 10px;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.3px;
     color: var(--accent-primary);
     border-bottom: 2px solid var(--border-color);
-    white-space: nowrap;
+    word-wrap: break-word;
+    vertical-align: top;
 }
 
 td {
-    padding: 14px 12px;
+    padding: 6px 6px;
     border-bottom: 1px solid var(--border-color);
-    font-size: 14px;
+    font-size: 12px;
     color: var(--text-primary);
+    word-wrap: break-word;
+    vertical-align: top;
+    max-width: 120px;
 }
 
 tbody tr {
@@ -187,11 +191,11 @@ tbody tr:hover {
 .cell-warning {
     color: #ffa500;
     font-weight: 700;
-    font-size: 12px;
-    margin-top: 6px;
-    padding: 4px 8px;
+    font-size: 10px;
+    margin-top: 4px;
+    padding: 3px 6px;
     background-color: rgba(255, 165, 0, 0.2);
-    border-radius: 4px;
+    border-radius: 3px;
     display: inline-block;
 }
 
@@ -204,7 +208,7 @@ tbody tr:hover {
 .cell-preventivo {
     color: #6495ed;
     font-weight: 700;
-    font-size: 13px;
+    font-size: 10px;
     font-style: italic;
 }
 
@@ -213,43 +217,45 @@ tbody tr:hover {
     display: inline-block;
     background-color: rgba(100, 149, 237, 0.3);
     color: #6495ed;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 9px;
     font-weight: 700;
-    margin-top: 4px;
+    margin-top: 2px;
 }
 
 .badge-commessa {
     display: inline-block;
     background-color: rgba(68, 255, 136, 0.3);
     color: #44ff88;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 9px;
     font-weight: 700;
-    margin-left: 8px;
+    margin-left: 4px;
 }
 
 /* Dati nelle celle */
 .cell-data {
-    font-size: 13px;
-    line-height: 1.5;
+    font-size: 11px;
+    line-height: 1.3;
 }
 
 .cell-data div {
-    margin-bottom: 4px;
+    margin-bottom: 2px;
 }
 
 .cell-data strong {
     color: var(--accent-primary);
     font-weight: 600;
+    font-size: 10px;
 }
 
 .cell-empty {
     color: var(--warning-color);
     font-style: italic;
     font-weight: 600;
+    font-size: 11px;
 }
 
 /* Azioni */
@@ -260,10 +266,10 @@ tbody tr:hover {
 }
 
 .btn-edit, .btn-delete, .btn-toggle-commessa {
-    padding: 6px 12px;
+    padding: 4px 8px;
     border: none;
-    border-radius: 4px;
-    font-size: 12px;
+    border-radius: 3px;
+    font-size: 10px;
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s ease;
@@ -279,8 +285,8 @@ tbody tr:hover {
 }
 
 .btn-toggle-commessa {
-    font-size: 11px;
-    padding: 6px 10px;
+    font-size: 9px;
+    padding: 4px 6px;
 }
 
 .btn-activate {
@@ -445,28 +451,27 @@ form {
 .cell-notes-pending {
     background-color: rgba(255, 68, 68, 0.15) !important;
     border-left: 4px solid var(--warning-color);
+    text-align: center;
 }
 
 .cell-notes-complete {
     background-color: var(--success-bg) !important;
     border-left: 4px solid var(--success-color);
+    text-align: center;
 }
 
-.notes-list {
-    font-size: 13px;
-    line-height: 1.6;
-}
-
-.note-item {
-    padding: 3px 0;
+.notes-status-present {
     color: var(--warning-color);
-    font-weight: 600;
+    font-weight: 700;
+    font-size: 11px;
+    text-transform: uppercase;
 }
 
-.notes-empty {
+.notes-status-none {
     color: var(--success-color);
-    font-weight: 600;
-    font-style: italic;
+    font-weight: 700;
+    font-size: 11px;
+    text-transform: uppercase;
 }
 
 /* Responsive */
