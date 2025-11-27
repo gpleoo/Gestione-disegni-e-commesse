@@ -121,6 +121,9 @@ class DrawingsManager {
             this.suggestNextNumber();
         }
 
+        // Popola gli autocomplete con i valori già usati
+        this.populateAutocomplete();
+
         modal.style.display = 'block';
         this.setFieldPermissions();
     }
@@ -220,6 +223,45 @@ class DrawingsManager {
                     field.style.cursor = '';
                 }
             });
+        }
+    }
+
+    populateAutocomplete() {
+        // Raccoglie tutti i valori unici per Cliente
+        const clienti = [...new Set(this.drawings
+            .map(d => d.cliente)
+            .filter(c => c && c.trim() !== '')
+        )].sort();
+
+        // Raccoglie tutti i valori unici per Cantiere
+        const cantieri = [...new Set(this.drawings
+            .map(d => d.cantiere)
+            .filter(c => c && c.trim() !== '')
+        )].sort();
+
+        // Raccoglie tutti i valori unici per "Consegnato a"
+        const consegnati = new Set();
+        this.drawings.forEach(d => {
+            if (d.disegniOfficina?.consegnato) consegnati.add(d.disegniOfficina.consegnato.trim());
+            if (d.disegniCantiere?.consegnato) consegnati.add(d.disegniCantiere.consegnato.trim());
+            if (d.rdoMateriali?.consegnato) consegnati.add(d.rdoMateriali.consegnato.trim());
+            if (d.rdoBulloneria?.consegnato) consegnati.add(d.rdoBulloneria.consegnato.trim());
+            if (d.dxfPiastre?.consegnato) consegnati.add(d.dxfPiastre.consegnato.trim());
+        });
+        const consegnatiArray = [...consegnati].filter(c => c !== '').sort();
+
+        // Popola le datalist
+        this.updateDatalist('clientiList', clienti);
+        this.updateDatalist('cantieriList', cantieri);
+        this.updateDatalist('consegnatoList', consegnatiArray);
+    }
+
+    updateDatalist(datalistId, values) {
+        const datalist = document.getElementById(datalistId);
+        if (datalist) {
+            datalist.innerHTML = values.map(value =>
+                `<option value="${value}">`
+            ).join('');
         }
     }
 
