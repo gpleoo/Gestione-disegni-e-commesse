@@ -237,7 +237,7 @@ class DrawingsManager {
             const maxNumber = Math.max(...numbers);
             document.getElementById('numeroDisegno').value = `${maxNumber + 1}/${currentYear}`;
         } else {
-            document.getElementById('numeroDisegno').value = `1/${currentYear}`;
+            document.getElementById('numeroDisegno').value = `890/${currentYear}`;
         }
     }
 
