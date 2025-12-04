@@ -99,6 +99,18 @@ header h1 {
     background-color: #cc0000;
 }
 
+/* Pulsanti Esporta/Importa */
+.data-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.data-actions .btn-secondary {
+    padding: 8px 14px;
+    font-size: 13px;
+}
+
 /* Bottoni */
 .btn-primary, .btn-secondary {
     padding: 12px 24px;
