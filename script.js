@@ -102,6 +102,21 @@ class DrawingsManager {
             document.getElementById('filterOggetto').value = '';
             this.applyFilters();
         });
+
+        // Esporta dati
+        document.getElementById('exportBtn').addEventListener('click', () => {
+            this.exportData();
+        });
+
+        // Importa dati - click sul pulsante apre il file picker
+        document.getElementById('importBtn').addEventListener('click', () => {
+            document.getElementById('importFile').click();
+        });
+
+        // Importa dati - quando viene selezionato un file
+        document.getElementById('importFile').addEventListener('change', (e) => {
+            this.importData(e);
+        });
     }
 
     openModal(drawing = null) {
@@ -119,6 +134,8 @@ class DrawingsManager {
             form.reset();
             // Suggerisci il prossimo numero
             this.suggestNextNumber();
+            // Imposta la data odierna come default
+            this.setTodayDate();
         }
 
         // Popola gli autocomplete con i valori già usati
@@ -186,7 +203,7 @@ class DrawingsManager {
     setFieldPermissions() {
         // Campi che SOLO l'admin può modificare
         const adminOnlyFields = [
-            'numeroDisegno', 'cliente', 'cantiere', 'oggettoLavoro',
+            'numeroDisegno', 'dataDisegno', 'cliente', 'cantiere', 'oggettoLavoro',
             'disegniOfficinaConsegnato', 'disegniOfficinaData',
             'disegniCantiereConsegnato', 'disegniCantiereData',
             'rdoMaterialiConsegnato', 'rdoMaterialiData',
@@ -283,8 +300,18 @@ class DrawingsManager {
         }
     }
 
+    setTodayDate() {
+        // Imposta la data odierna nel formato YYYY-MM-DD per l'input type="date"
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = String(today.getMonth() + 1).padStart(2, '0');
+        const day = String(today.getDate()).padStart(2, '0');
+        document.getElementById('dataDisegno').value = `${year}-${month}-${day}`;
+    }
+
     populateForm(drawing) {
         document.getElementById('numeroDisegno').value = drawing.numeroDisegno || '';
+        document.getElementById('dataDisegno').value = drawing.dataDisegno || '';
         document.getElementById('cliente').value = drawing.cliente || '';
         document.getElementById('cantiere').value = drawing.cantiere || '';
         document.getElementById('oggettoLavoro').value = drawing.oggettoLavoro || '';
@@ -316,6 +343,7 @@ class DrawingsManager {
         const drawingData = {
             id: this.currentEditId || Date.now(),
             numeroDisegno: document.getElementById('numeroDisegno').value,
+            dataDisegno: document.getElementById('dataDisegno').value,
             cliente: document.getElementById('cliente').value,
             cantiere: document.getElementById('cantiere').value,
             oggettoLavoro: document.getElementById('oggettoLavoro').value,
@@ -618,6 +646,107 @@ class DrawingsManager {
         });
 
         this.renderTable(filtered);
+    }
+
+    exportData() {
+        if (this.drawings.length === 0) {
+            alert('Nessun dato da esportare.');
+            return;
+        }
+
+        // Crea il contenuto JSON formattato
+        const dataToExport = {
+            exportDate: new Date().toISOString(),
+            version: '1.0',
+            totalDrawings: this.drawings.length,
+            drawings: this.drawings
+        };
+
+        const jsonString = JSON.stringify(dataToExport, null, 2);
+        const blob = new Blob([jsonString], { type: 'application/json' });
+
+        // Crea nome file con data
+        const today = new Date();
+        const dateStr = today.toISOString().split('T')[0]; // YYYY-MM-DD
+        const filename = `disegni_commesse_${dateStr}.json`;
+
+        // Crea link di download e clicca automaticamente
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(link.href);
+
+        console.log(`📤 Esportati ${this.drawings.length} disegni in ${filename}`);
+        alert(`Esportati ${this.drawings.length} disegni!\n\nFile: ${filename}\n\nSalvalo nella cartella condivisa per permettere ai colleghi di importarlo.`);
+    }
+
+    importData(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        // Verifica che sia un file JSON
+        if (!file.name.endsWith('.json')) {
+            alert('Errore: Seleziona un file JSON valido.');
+            event.target.value = '';
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const importedData = JSON.parse(e.target.result);
+
+                // Verifica struttura del file
+                let drawingsToImport;
+                if (importedData.drawings && Array.isArray(importedData.drawings)) {
+                    // Nuovo formato con metadati
+                    drawingsToImport = importedData.drawings;
+                } else if (Array.isArray(importedData)) {
+                    // Vecchio formato (array diretto)
+                    drawingsToImport = importedData;
+                } else {
+                    throw new Error('Formato file non valido');
+                }
+
+                // Chiedi conferma prima di sovrascrivere
+                const currentCount = this.drawings.length;
+                const importCount = drawingsToImport.length;
+
+                let message = `Trovati ${importCount} disegni nel file.\n\n`;
+                if (currentCount > 0) {
+                    message += `Hai attualmente ${currentCount} disegni.\n\n`;
+                    message += 'Scegli come procedere:\n';
+                    message += '- OK = SOSTITUISCI tutti i dati attuali\n';
+                    message += '- Annulla = Non importare';
+                } else {
+                    message += 'Vuoi importare questi dati?';
+                }
+
+                if (confirm(message)) {
+                    this.drawings = drawingsToImport;
+                    this.saveDrawings();
+                    this.renderTable();
+                    alert(`Importati con successo ${importCount} disegni!`);
+                    console.log(`📥 Importati ${importCount} disegni`);
+                }
+            } catch (error) {
+                console.error('Errore importazione:', error);
+                alert('Errore: Il file non è un JSON valido o ha un formato errato.\n\nDettaglio: ' + error.message);
+            }
+
+            // Reset input file per permettere di reimportare lo stesso file
+            event.target.value = '';
+        };
+
+        reader.onerror = () => {
+            alert('Errore nella lettura del file.');
+            event.target.value = '';
+        };
+
+        reader.readAsText(file);
     }
 }
 
