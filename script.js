@@ -119,6 +119,8 @@ class DrawingsManager {
             form.reset();
             // Suggerisci il prossimo numero
             this.suggestNextNumber();
+            // Imposta la data odierna come default
+            this.setTodayDate();
         }
 
         // Popola gli autocomplete con i valori già usati
@@ -186,7 +188,7 @@ class DrawingsManager {
     setFieldPermissions() {
         // Campi che SOLO l'admin può modificare
         const adminOnlyFields = [
-            'numeroDisegno', 'cliente', 'cantiere', 'oggettoLavoro',
+            'numeroDisegno', 'dataDisegno', 'cliente', 'cantiere', 'oggettoLavoro',
             'disegniOfficinaConsegnato', 'disegniOfficinaData',
             'disegniCantiereConsegnato', 'disegniCantiereData',
             'rdoMaterialiConsegnato', 'rdoMaterialiData',
@@ -283,8 +285,18 @@ class DrawingsManager {
         }
     }
 
+    setTodayDate() {
+        // Imposta la data odierna nel formato YYYY-MM-DD per l'input type="date"
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = String(today.getMonth() + 1).padStart(2, '0');
+        const day = String(today.getDate()).padStart(2, '0');
+        document.getElementById('dataDisegno').value = `${year}-${month}-${day}`;
+    }
+
     populateForm(drawing) {
         document.getElementById('numeroDisegno').value = drawing.numeroDisegno || '';
+        document.getElementById('dataDisegno').value = drawing.dataDisegno || '';
         document.getElementById('cliente').value = drawing.cliente || '';
         document.getElementById('cantiere').value = drawing.cantiere || '';
         document.getElementById('oggettoLavoro').value = drawing.oggettoLavoro || '';
@@ -316,6 +328,7 @@ class DrawingsManager {
         const drawingData = {
             id: this.currentEditId || Date.now(),
             numeroDisegno: document.getElementById('numeroDisegno').value,
+            dataDisegno: document.getElementById('dataDisegno').value,
             cliente: document.getElementById('cliente').value,
             cantiere: document.getElementById('cantiere').value,
             oggettoLavoro: document.getElementById('oggettoLavoro').value,
