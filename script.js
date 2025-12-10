@@ -648,7 +648,7 @@ class DrawingsManager {
         this.renderTable(filtered);
     }
 
-    exportData() {
+    async exportData() {
         if (this.drawings.length === 0) {
             alert('Nessun dato da esportare.');
             return;
@@ -663,14 +663,41 @@ class DrawingsManager {
         };
 
         const jsonString = JSON.stringify(dataToExport, null, 2);
-        const blob = new Blob([jsonString], { type: 'application/json' });
 
         // Crea nome file con data
         const today = new Date();
         const dateStr = today.toISOString().split('T')[0]; // YYYY-MM-DD
         const filename = `disegni_commesse_${dateStr}.json`;
 
-        // Crea link di download e clicca automaticamente
+        // Prova a usare File System Access API (Chrome/Edge) per scegliere la cartella
+        if ('showSaveFilePicker' in window) {
+            try {
+                const handle = await window.showSaveFilePicker({
+                    suggestedName: filename,
+                    types: [{
+                        description: 'File JSON',
+                        accept: { 'application/json': ['.json'] }
+                    }]
+                });
+
+                const writable = await handle.createWritable();
+                await writable.write(jsonString);
+                await writable.close();
+
+                console.log(`📤 Esportati ${this.drawings.length} disegni`);
+                alert(`Esportati con successo ${this.drawings.length} disegni!`);
+                return;
+            } catch (err) {
+                // L'utente ha annullato o c'è stato un errore
+                if (err.name === 'AbortError') {
+                    return; // L'utente ha annullato, non mostrare errori
+                }
+                console.warn('File System Access API non disponibile, uso download tradizionale');
+            }
+        }
+
+        // Fallback: download tradizionale nella cartella Download
+        const blob = new Blob([jsonString], { type: 'application/json' });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
         link.download = filename;
@@ -680,7 +707,7 @@ class DrawingsManager {
         URL.revokeObjectURL(link.href);
 
         console.log(`📤 Esportati ${this.drawings.length} disegni in ${filename}`);
-        alert(`Esportati ${this.drawings.length} disegni!\n\nFile: ${filename}\n\nSalvalo nella cartella condivisa per permettere ai colleghi di importarlo.`);
+        alert(`Esportati ${this.drawings.length} disegni!\n\nFile: ${filename}\n\nNota: Per scegliere la cartella, usa Chrome o Edge.`);
     }
 
     importData(event) {
