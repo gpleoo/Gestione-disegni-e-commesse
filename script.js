@@ -3,8 +3,18 @@ class DrawingsManager {
     constructor() {
         this.drawings = this.loadDrawings();
         this.currentEditId = null;
-        this.isAdmin = this.loadAdminStatus();
-        this.adminPassword = 'admin123'; // CAMBIA QUESTA PASSWORD!
+
+        // Sistema utenti con ruoli diversi
+        // MODIFICA LE PASSWORD QUI:
+        this.users = {
+            'admin': { password: 'admin123', role: 'admin', name: 'Amministratore' },
+            'collaboratore': { password: 'collab123', role: 'collaboratore', name: 'Collaboratore' },
+            'utente1': { password: 'utente1', role: 'visualizzatore', name: 'Utente 1' },
+            'utente2': { password: 'utente2', role: 'visualizzatore', name: 'Utente 2' },
+            'utente3': { password: 'utente3', role: 'visualizzatore', name: 'Utente 3' }
+        };
+
+        this.currentUser = this.loadCurrentUser();
         this.initializeEventListeners();
         this.updateUserInterface();
         this.renderTable();
@@ -15,12 +25,17 @@ class DrawingsManager {
         return stored ? JSON.parse(stored) : [];
     }
 
-    loadAdminStatus() {
-        return localStorage.getItem('isAdmin') === 'true';
+    loadCurrentUser() {
+        const stored = localStorage.getItem('currentUser');
+        return stored ? JSON.parse(stored) : null;
     }
 
-    saveAdminStatus() {
-        localStorage.setItem('isAdmin', this.isAdmin);
+    saveCurrentUser() {
+        if (this.currentUser) {
+            localStorage.setItem('currentUser', JSON.stringify(this.currentUser));
+        } else {
+            localStorage.removeItem('currentUser');
+        }
     }
 
     saveDrawings() {
@@ -120,6 +135,16 @@ class DrawingsManager {
     }
 
     openModal(drawing = null) {
+        // Blocca se non può modificare
+        if (!this.canEdit()) {
+            if (this.isViewer()) {
+                alert('⚠️ Sei un visualizzatore.\n\nPuoi solo vedere i dati, non modificarli.');
+            } else {
+                alert('⚠️ Devi effettuare il login per modificare i dati.');
+            }
+            return;
+        }
+
         const modal = document.getElementById('modal');
         const form = document.getElementById('drawingForm');
         const title = document.getElementById('modalTitle');
@@ -163,22 +188,59 @@ class DrawingsManager {
 
     checkAdminPassword() {
         const password = document.getElementById('adminPassword').value;
-        if (password === this.adminPassword) {
-            this.isAdmin = true;
-            this.saveAdminStatus();
+
+        // Cerca l'utente con questa password
+        let foundUser = null;
+        let foundUsername = null;
+
+        for (const [username, userData] of Object.entries(this.users)) {
+            if (userData.password === password) {
+                foundUser = userData;
+                foundUsername = username;
+                break;
+            }
+        }
+
+        if (foundUser) {
+            this.currentUser = {
+                username: foundUsername,
+                role: foundUser.role,
+                name: foundUser.name
+            };
+            this.saveCurrentUser();
             this.updateUserInterface();
             this.closeAdminModal();
-            alert('✅ Login amministratore effettuato!');
+            alert(`✅ Login effettuato!\n\nBenvenuto ${foundUser.name}!\nRuolo: ${this.getRoleDisplayName(foundUser.role)}`);
         } else {
             alert('❌ Password errata!');
             document.getElementById('adminPassword').value = '';
         }
     }
 
+    getRoleDisplayName(role) {
+        const names = {
+            'admin': 'Amministratore (può modificare tutto)',
+            'collaboratore': 'Collaboratore (può modificare tutto)',
+            'visualizzatore': 'Visualizzatore (solo lettura)'
+        };
+        return names[role] || role;
+    }
+
+    canEdit() {
+        // Admin e Collaboratore possono modificare
+        return this.currentUser && (this.currentUser.role === 'admin' || this.currentUser.role === 'collaboratore');
+    }
+
+    isViewer() {
+        // Visualizzatore può solo vedere
+        return this.currentUser && this.currentUser.role === 'visualizzatore';
+    }
+
     logout() {
-        if (confirm('Vuoi uscire dalla modalità amministratore?')) {
-            this.isAdmin = false;
-            this.saveAdminStatus();
+        const userName = this.currentUser ? this.currentUser.name : 'Utente';
+        if (confirm(`Vuoi uscire, ${userName}?`)) {
+            this.currentUser = null;
+            this.saveCurrentUser();
             this.updateUserInterface();
         }
     }
@@ -186,58 +248,71 @@ class DrawingsManager {
     updateUserInterface() {
         const userRole = document.getElementById('userRole');
         const toggleBtn = document.getElementById('toggleAdminBtn');
+        const addDrawingBtn = document.getElementById('addDrawingBtn');
 
-        if (this.isAdmin) {
-            userRole.textContent = '👑 Amministratore';
+        if (this.currentUser) {
+            // Utente loggato
+            const roleIcons = {
+                'admin': '👑',
+                'collaboratore': '🤝',
+                'visualizzatore': '👁️'
+            };
+            const icon = roleIcons[this.currentUser.role] || '👤';
+            userRole.textContent = `${icon} ${this.currentUser.name}`;
             userRole.classList.add('admin');
             toggleBtn.textContent = '🚪 Logout';
             toggleBtn.classList.add('logout');
+
+            // Nascondi "Nuovo Disegno" per i visualizzatori
+            if (this.isViewer()) {
+                addDrawingBtn.style.display = 'none';
+            } else {
+                addDrawingBtn.style.display = '';
+            }
         } else {
-            userRole.textContent = '👤 Utente';
+            // Nessun utente loggato
+            userRole.textContent = '👤 Ospite';
             userRole.classList.remove('admin');
-            toggleBtn.textContent = '🔐 Login Admin';
+            toggleBtn.textContent = '🔐 Login';
             toggleBtn.classList.remove('logout');
+            addDrawingBtn.style.display = 'none'; // Ospiti non possono aggiungere
         }
     }
 
     setFieldPermissions() {
-        // Campi che SOLO l'admin può modificare
-        const adminOnlyFields = [
+        // Tutti i campi del form
+        const allFields = [
             'numeroDisegno', 'dataDisegno', 'cliente', 'cantiere', 'oggettoLavoro',
             'disegniOfficinaConsegnato', 'disegniOfficinaData',
             'disegniCantiereConsegnato', 'disegniCantiereData',
             'rdoMaterialiConsegnato', 'rdoMaterialiData',
             'rdoBulloneriaConsegnato', 'rdoBulloneriaData',
             'dxfPiastreConsegnato', 'dxfPiastreData',
+            'ordineMateriali', 'arrivoMateriale',
+            'ordineBulloneria', 'arrivoBulloneria',
             'note'
         ];
 
-        // Campi che TUTTI possono modificare
-        const userFields = [
-            'ordineMateriali', 'arrivoMateriale',
-            'ordineBulloneria', 'arrivoBulloneria'
-        ];
-
-        if (!this.isAdmin) {
-            // Disabilita i campi admin-only
-            adminOnlyFields.forEach(fieldId => {
-                const field = document.getElementById(fieldId);
-                if (field) {
-                    field.disabled = true;
-                    field.style.backgroundColor = 'var(--bg-primary)';
-                    field.style.opacity = '0.6';
-                    field.style.cursor = 'not-allowed';
-                }
-            });
-        } else {
-            // Abilita tutti i campi
-            [...adminOnlyFields, ...userFields].forEach(fieldId => {
+        if (this.canEdit()) {
+            // Admin e Collaboratore: possono modificare TUTTO
+            allFields.forEach(fieldId => {
                 const field = document.getElementById(fieldId);
                 if (field) {
                     field.disabled = false;
                     field.style.backgroundColor = '';
                     field.style.opacity = '';
                     field.style.cursor = '';
+                }
+            });
+        } else {
+            // Visualizzatori e Ospiti: tutti i campi disabilitati
+            allFields.forEach(fieldId => {
+                const field = document.getElementById(fieldId);
+                if (field) {
+                    field.disabled = true;
+                    field.style.backgroundColor = 'var(--bg-primary)';
+                    field.style.opacity = '0.6';
+                    field.style.cursor = 'not-allowed';
                 }
             });
         }
@@ -609,6 +684,7 @@ class DrawingsManager {
                         ${this.formatNotes(drawing.note).html}
                     </td>
                     <td>
+                        ${this.canEdit() ? `
                         <div class="actions-cell">
                             <button class="btn-toggle-commessa ${isPreventivo ? 'btn-activate' : 'btn-deactivate'}"
                                     onclick="manager.toggleCommessa(${drawing.id})"
@@ -619,6 +695,7 @@ class DrawingsManager {
                                 ✏️ Modifica
                             </button>
                         </div>
+                        ` : '<span style="color: var(--text-secondary); font-size: 12px;">Solo lettura</span>'}
                     </td>
                 </tr>
             `;
