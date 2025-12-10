@@ -81,9 +81,9 @@ class DrawingsManager {
             this.saveDrawing();
         });
 
-        // Toggle admin
+        // Toggle admin/login
         document.getElementById('toggleAdminBtn').addEventListener('click', () => {
-            if (this.isAdmin) {
+            if (this.currentUser) {
                 this.logout();
             } else {
                 this.openAdminModal();
@@ -209,6 +209,7 @@ class DrawingsManager {
             };
             this.saveCurrentUser();
             this.updateUserInterface();
+            this.renderTable(); // Aggiorna la tabella per mostrare/nascondere i pulsanti
             this.closeAdminModal();
             alert(`✅ Login effettuato!\n\nBenvenuto ${foundUser.name}!\nRuolo: ${this.getRoleDisplayName(foundUser.role)}`);
         } else {
@@ -242,6 +243,7 @@ class DrawingsManager {
             this.currentUser = null;
             this.saveCurrentUser();
             this.updateUserInterface();
+            this.renderTable(); // Aggiorna la tabella per nascondere i pulsanti
         }
     }
 
