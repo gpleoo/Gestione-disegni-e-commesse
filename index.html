@@ -105,8 +105,11 @@
                     </div>
                 </div>
 
-                <h3 class="section-title">Disegni Officina</h3>
-                <div class="form-grid">
+                <h3 class="section-title">
+                    Disegni Officina
+                    <label class="checkbox-na"><input type="checkbox" id="disegniOfficinaNonNecessario"> Non necessario</label>
+                </h3>
+                <div class="form-grid" id="disegniOfficinaFields">
                     <div class="form-group">
                         <label for="disegniOfficinaConsegnato">Consegnato a</label>
                         <input type="text" id="disegniOfficinaConsegnato" list="consegnatoList">
@@ -118,8 +121,11 @@
                     </div>
                 </div>
 
-                <h3 class="section-title">Disegni Cantiere</h3>
-                <div class="form-grid">
+                <h3 class="section-title">
+                    Disegni Cantiere
+                    <label class="checkbox-na"><input type="checkbox" id="disegniCantiereNonNecessario"> Non necessario</label>
+                </h3>
+                <div class="form-grid" id="disegniCantiereFields">
                     <div class="form-group">
                         <label for="disegniCantiereConsegnato">Consegnato a</label>
                         <input type="text" id="disegniCantiereConsegnato" list="consegnatoList">
@@ -130,54 +136,67 @@
                     </div>
                 </div>
 
-                <h3 class="section-title">RDO Materiali</h3>
-                <div class="form-grid">
-                    <div class="form-group">
-                        <label for="rdoMaterialiConsegnato">Consegnato a</label>
-                        <input type="text" id="rdoMaterialiConsegnato" list="consegnatoList">
+                <h3 class="section-title">
+                    RDO Materiali
+                    <label class="checkbox-na"><input type="checkbox" id="rdoMaterialiNonNecessario"> Non necessario</label>
+                </h3>
+                <div id="rdoMaterialiFields">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="rdoMaterialiConsegnato">Consegnato a</label>
+                            <input type="text" id="rdoMaterialiConsegnato" list="consegnatoList">
+                        </div>
+                        <div class="form-group">
+                            <label for="rdoMaterialiData">Data</label>
+                            <input type="date" id="rdoMaterialiData">
+                        </div>
                     </div>
-                    <div class="form-group">
-                        <label for="rdoMaterialiData">Data</label>
-                        <input type="date" id="rdoMaterialiData">
+
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="ordineMateriali">Ordine Materiali</label>
+                            <input type="text" id="ordineMateriali">
+                        </div>
+                        <div class="form-group">
+                            <label for="arrivoMateriale">Arrivo Materiale</label>
+                            <input type="date" id="arrivoMateriale">
+                        </div>
                     </div>
                 </div>
 
-                <div class="form-grid">
-                    <div class="form-group">
-                        <label for="ordineMateriali">Ordine Materiali</label>
-                        <input type="text" id="ordineMateriali">
+                <h3 class="section-title">
+                    RDO Bulloneria
+                    <label class="checkbox-na"><input type="checkbox" id="rdoBulloneriaNonNecessario"> Non necessario</label>
+                </h3>
+                <div id="rdoBulloneriaFields">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="rdoBulloneriaConsegnato">Consegnato a</label>
+                            <input type="text" id="rdoBulloneriaConsegnato" list="consegnatoList">
+                        </div>
+                        <div class="form-group">
+                            <label for="rdoBulloneriaData">Data</label>
+                            <input type="date" id="rdoBulloneriaData">
+                        </div>
                     </div>
-                    <div class="form-group">
-                        <label for="arrivoMateriale">Arrivo Materiale</label>
-                        <input type="date" id="arrivoMateriale">
+
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="ordineBulloneria">Ordine Bulloneria</label>
+                            <input type="text" id="ordineBulloneria">
+                        </div>
+                        <div class="form-group">
+                            <label for="arrivoBulloneria">Arrivo Bulloneria</label>
+                            <input type="date" id="arrivoBulloneria">
+                        </div>
                     </div>
                 </div>
 
-                <h3 class="section-title">RDO Bulloneria</h3>
-                <div class="form-grid">
-                    <div class="form-group">
-                        <label for="rdoBulloneriaConsegnato">Consegnato a</label>
-                        <input type="text" id="rdoBulloneriaConsegnato" list="consegnatoList">
-                    </div>
-                    <div class="form-group">
-                        <label for="rdoBulloneriaData">Data</label>
-                        <input type="date" id="rdoBulloneriaData">
-                    </div>
-                </div>
-
-                <div class="form-grid">
-                    <div class="form-group">
-                        <label for="ordineBulloneria">Ordine Bulloneria</label>
-                        <input type="text" id="ordineBulloneria">
-                    </div>
-                    <div class="form-group">
-                        <label for="arrivoBulloneria">Arrivo Bulloneria</label>
-                        <input type="date" id="arrivoBulloneria">
-                    </div>
-                </div>
-
-                <h3 class="section-title">DXF Piastre</h3>
-                <div class="form-grid">
+                <h3 class="section-title">
+                    DXF Piastre
+                    <label class="checkbox-na"><input type="checkbox" id="dxfPiastreNonNecessario"> Non necessario</label>
+                </h3>
+                <div class="form-grid" id="dxfPiastreFields">
                     <div class="form-group">
                         <label for="dxfPiastreConsegnato">Consegnato a</label>
                         <input type="text" id="dxfPiastreConsegnato" list="consegnatoList">

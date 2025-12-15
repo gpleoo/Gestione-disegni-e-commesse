@@ -504,6 +504,43 @@ form {
     margin-top: 10px;
     padding-bottom: 10px;
     border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.checkbox-na {
+    font-size: 13px;
+    font-weight: normal;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.checkbox-na input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: var(--success-color);
+}
+
+.checkbox-na:hover {
+    color: var(--text-primary);
+}
+
+/* Stile per celle N/A */
+.cell-na {
+    background-color: rgba(68, 255, 136, 0.15) !important;
+    border-left: 3px solid var(--success-color);
+}
+
+.cell-na-text {
+    color: var(--success-color);
+    font-weight: 600;
+    font-size: 12px;
+    font-style: italic;
 }
 
 .form-actions {
