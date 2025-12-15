@@ -395,22 +395,27 @@ class DrawingsManager {
 
         document.getElementById('disegniOfficinaConsegnato').value = drawing.disegniOfficina?.consegnato || '';
         document.getElementById('disegniOfficinaData').value = drawing.disegniOfficina?.data || '';
+        document.getElementById('disegniOfficinaNonNecessario').checked = drawing.disegniOfficinaNonNecessario || false;
 
         document.getElementById('disegniCantiereConsegnato').value = drawing.disegniCantiere?.consegnato || '';
         document.getElementById('disegniCantiereData').value = drawing.disegniCantiere?.data || '';
+        document.getElementById('disegniCantiereNonNecessario').checked = drawing.disegniCantiereNonNecessario || false;
 
         document.getElementById('rdoMaterialiConsegnato').value = drawing.rdoMateriali?.consegnato || '';
         document.getElementById('rdoMaterialiData').value = drawing.rdoMateriali?.data || '';
         document.getElementById('ordineMateriali').value = drawing.ordineMateriali || '';
         document.getElementById('arrivoMateriale').value = drawing.arrivoMateriale || '';
+        document.getElementById('rdoMaterialiNonNecessario').checked = drawing.rdoMaterialiNonNecessario || false;
 
         document.getElementById('rdoBulloneriaConsegnato').value = drawing.rdoBulloneria?.consegnato || '';
         document.getElementById('rdoBulloneriaData').value = drawing.rdoBulloneria?.data || '';
         document.getElementById('ordineBulloneria').value = drawing.ordineBulloneria || '';
         document.getElementById('arrivoBulloneria').value = drawing.arrivoBulloneria || '';
+        document.getElementById('rdoBulloneriaNonNecessario').checked = drawing.rdoBulloneriaNonNecessario || false;
 
         document.getElementById('dxfPiastreConsegnato').value = drawing.dxfPiastre?.consegnato || '';
         document.getElementById('dxfPiastreData').value = drawing.dxfPiastre?.data || '';
+        document.getElementById('dxfPiastreNonNecessario').checked = drawing.dxfPiastreNonNecessario || false;
 
         document.getElementById('note').value = drawing.note || '';
     }
@@ -428,26 +433,31 @@ class DrawingsManager {
                 consegnato: document.getElementById('disegniOfficinaConsegnato').value,
                 data: document.getElementById('disegniOfficinaData').value
             },
+            disegniOfficinaNonNecessario: document.getElementById('disegniOfficinaNonNecessario').checked,
             disegniCantiere: {
                 consegnato: document.getElementById('disegniCantiereConsegnato').value,
                 data: document.getElementById('disegniCantiereData').value
             },
+            disegniCantiereNonNecessario: document.getElementById('disegniCantiereNonNecessario').checked,
             rdoMateriali: {
                 consegnato: document.getElementById('rdoMaterialiConsegnato').value,
                 data: document.getElementById('rdoMaterialiData').value
             },
+            rdoMaterialiNonNecessario: document.getElementById('rdoMaterialiNonNecessario').checked,
             ordineMateriali: document.getElementById('ordineMateriali').value,
             arrivoMateriale: document.getElementById('arrivoMateriale').value,
             rdoBulloneria: {
                 consegnato: document.getElementById('rdoBulloneriaConsegnato').value,
                 data: document.getElementById('rdoBulloneriaData').value
             },
+            rdoBulloneriaNonNecessario: document.getElementById('rdoBulloneriaNonNecessario').checked,
             ordineBulloneria: document.getElementById('ordineBulloneria').value,
             arrivoBulloneria: document.getElementById('arrivoBulloneria').value,
             dxfPiastre: {
                 consegnato: document.getElementById('dxfPiastreConsegnato').value,
                 data: document.getElementById('dxfPiastreData').value
             },
+            dxfPiastreNonNecessario: document.getElementById('dxfPiastreNonNecessario').checked,
             note: document.getElementById('note').value,
             stato: this.currentEditId ?
                 this.drawings.find(d => d.id === this.currentEditId)?.stato || 'preventivo' :
@@ -498,10 +508,15 @@ class DrawingsManager {
         }
     }
 
-    formatCellData(data, isRequired = false, isPreventivo = false) {
+    formatCellData(data, isRequired = false, isPreventivo = false, isNonNecessario = false) {
         // Se è un preventivo, mostra solo "PREVENTIVO"
         if (isPreventivo) {
             return '<div class="cell-preventivo">📋 PREVENTIVO</div>';
+        }
+
+        // Se è marcato come "Non necessario", mostra N/A in verde
+        if (isNonNecessario) {
+            return '<div class="cell-na-text">N/A</div>';
         }
 
         // Caso 1: Completamente vuoto
@@ -548,10 +563,15 @@ class DrawingsManager {
         return date.toLocaleDateString('it-IT');
     }
 
-    getCellClass(data, isRequired = false, isPreventivo = false) {
+    getCellClass(data, isRequired = false, isPreventivo = false, isNonNecessario = false) {
         // Se è un preventivo, usa lo stile preventivo
         if (isPreventivo) {
             return 'cell-preventivo-bg';
+        }
+
+        // Se è marcato come "Non necessario", usa lo stile N/A (verde)
+        if (isNonNecessario) {
+            return 'cell-na';
         }
 
         // Caso 1: Completamente vuoto
@@ -569,6 +589,36 @@ class DrawingsManager {
 
         // Caso 3: Completamente compilato
         return 'cell-complete';
+    }
+
+    // Funzioni per campi semplici con supporto N/A
+    formatSimpleFieldNA(value, isRequired, isPreventivo, isNonNecessario) {
+        if (isPreventivo) {
+            return value || '-';
+        }
+        if (isNonNecessario) {
+            return '<div class="cell-na-text">N/A</div>';
+        }
+        if (isRequired && (!value || value.trim() === '')) {
+            return '<div class="cell-empty">⚠️ NON INSERITO</div>';
+        }
+        return value || '-';
+    }
+
+    getSimpleFieldClassNA(value, isRequired, isPreventivo, isNonNecessario) {
+        if (isPreventivo) {
+            return '';
+        }
+        if (isNonNecessario) {
+            return 'cell-na';
+        }
+        if (isRequired) {
+            if (!value || value.trim() === '') {
+                return 'cell-incomplete';
+            }
+            return 'cell-complete';
+        }
+        return '';
     }
 
     formatNotes(note) {
@@ -639,6 +689,13 @@ class DrawingsManager {
             const isPreventivo = drawing.stato === 'preventivo';
             const isDxfRequired = !isPreventivo; // DXF obbligatorio solo per commesse
 
+            // Flag "Non Necessario" per ogni sezione
+            const disegniOfficinaNa = drawing.disegniOfficinaNonNecessario || false;
+            const disegniCantiereNa = drawing.disegniCantiereNonNecessario || false;
+            const rdoMaterialiNa = drawing.rdoMaterialiNonNecessario || false;
+            const rdoBulloneriaNa = drawing.rdoBulloneriaNonNecessario || false;
+            const dxfPiastreNa = drawing.dxfPiastreNonNecessario || false;
+
             return `
                 <tr class="${isPreventivo ? 'row-preventivo' : ''}">
                     <td>
@@ -648,36 +705,38 @@ class DrawingsManager {
                     <td>${drawing.cliente || '-'}</td>
                     <td>${drawing.cantiere || '-'}</td>
                     <td>${drawing.oggettoLavoro || '-'}</td>
-                    <td class="${this.getCellClass(drawing.disegniOfficina, true, isPreventivo)}">
-                        ${this.formatCellData(drawing.disegniOfficina, true, isPreventivo)}
+                    <td class="${this.getCellClass(drawing.disegniOfficina, true, isPreventivo, disegniOfficinaNa)}">
+                        ${this.formatCellData(drawing.disegniOfficina, true, isPreventivo, disegniOfficinaNa)}
                     </td>
-                    <td class="${this.getCellClass(drawing.disegniCantiere, true, isPreventivo)}">
-                        ${this.formatCellData(drawing.disegniCantiere, true, isPreventivo)}
+                    <td class="${this.getCellClass(drawing.disegniCantiere, true, isPreventivo, disegniCantiereNa)}">
+                        ${this.formatCellData(drawing.disegniCantiere, true, isPreventivo, disegniCantiereNa)}
                     </td>
-                    <td class="${this.getCellClass(drawing.rdoMateriali, true, isPreventivo)}">
-                        ${this.formatCellData(drawing.rdoMateriali, true, isPreventivo)}
+                    <td class="${this.getCellClass(drawing.rdoMateriali, true, isPreventivo, rdoMaterialiNa)}">
+                        ${this.formatCellData(drawing.rdoMateriali, true, isPreventivo, rdoMaterialiNa)}
                     </td>
-                    <td class="${this.getSimpleFieldClass(drawing.ordineMateriali, !isPreventivo, isPreventivo)}">
-                        ${this.formatSimpleField(drawing.ordineMateriali, !isPreventivo, isPreventivo)}
+                    <td class="${this.getSimpleFieldClassNA(drawing.ordineMateriali, !isPreventivo, isPreventivo, rdoMaterialiNa)}">
+                        ${this.formatSimpleFieldNA(drawing.ordineMateriali, !isPreventivo, isPreventivo, rdoMaterialiNa)}
                     </td>
-                    <td class="${this.getSimpleFieldClass(drawing.arrivoMateriale, !isPreventivo, isPreventivo)}">
-                        ${!isPreventivo && (!drawing.arrivoMateriale || drawing.arrivoMateriale.trim() === '')
+                    <td class="${this.getSimpleFieldClassNA(drawing.arrivoMateriale, !isPreventivo, isPreventivo, rdoMaterialiNa)}">
+                        ${rdoMaterialiNa ? '<div class="cell-na-text">N/A</div>' :
+                            (!isPreventivo && (!drawing.arrivoMateriale || drawing.arrivoMateriale.trim() === '')
                             ? '<div class="cell-empty">⚠️ NON INSERITO</div>'
-                            : this.formatDate(drawing.arrivoMateriale)}
+                            : this.formatDate(drawing.arrivoMateriale))}
                     </td>
-                    <td class="${this.getCellClass(drawing.rdoBulloneria, true, isPreventivo)}">
-                        ${this.formatCellData(drawing.rdoBulloneria, true, isPreventivo)}
+                    <td class="${this.getCellClass(drawing.rdoBulloneria, true, isPreventivo, rdoBulloneriaNa)}">
+                        ${this.formatCellData(drawing.rdoBulloneria, true, isPreventivo, rdoBulloneriaNa)}
                     </td>
-                    <td class="${this.getSimpleFieldClass(drawing.ordineBulloneria, !isPreventivo, isPreventivo)}">
-                        ${this.formatSimpleField(drawing.ordineBulloneria, !isPreventivo, isPreventivo)}
+                    <td class="${this.getSimpleFieldClassNA(drawing.ordineBulloneria, !isPreventivo, isPreventivo, rdoBulloneriaNa)}">
+                        ${this.formatSimpleFieldNA(drawing.ordineBulloneria, !isPreventivo, isPreventivo, rdoBulloneriaNa)}
                     </td>
-                    <td class="${this.getSimpleFieldClass(drawing.arrivoBulloneria, !isPreventivo, isPreventivo)}">
-                        ${!isPreventivo && (!drawing.arrivoBulloneria || drawing.arrivoBulloneria.trim() === '')
+                    <td class="${this.getSimpleFieldClassNA(drawing.arrivoBulloneria, !isPreventivo, isPreventivo, rdoBulloneriaNa)}">
+                        ${rdoBulloneriaNa ? '<div class="cell-na-text">N/A</div>' :
+                            (!isPreventivo && (!drawing.arrivoBulloneria || drawing.arrivoBulloneria.trim() === '')
                             ? '<div class="cell-empty">⚠️ NON INSERITO</div>'
-                            : this.formatDate(drawing.arrivoBulloneria)}
+                            : this.formatDate(drawing.arrivoBulloneria))}
                     </td>
-                    <td class="${this.getCellClass(drawing.dxfPiastre, isDxfRequired, isPreventivo)}">
-                        ${this.formatCellData(drawing.dxfPiastre, isDxfRequired, isPreventivo)}
+                    <td class="${this.getCellClass(drawing.dxfPiastre, isDxfRequired, isPreventivo, dxfPiastreNa)}">
+                        ${this.formatCellData(drawing.dxfPiastre, isDxfRequired, isPreventivo, dxfPiastreNa)}
                     </td>
                     <td class="${(() => {
                         const notesData = this.formatNotes(drawing.note);
