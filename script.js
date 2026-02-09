@@ -1,25 +1,96 @@
-// Gestione dello storage locale
+// ============================================================
+// Gestione Disegni e Commesse - v2.0
+// ============================================================
+
+// --- Utility: sanitizzazione HTML per prevenire XSS ---
+function escapeHtml(text) {
+    if (text === null || text === undefined) return '';
+    const str = String(text);
+    const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+    return str.replace(/[&<>"']/g, ch => map[ch]);
+}
+
+// --- Utility: hash SHA-256 per password ---
+async function sha256(message) {
+    const msgBuffer = new TextEncoder().encode(message);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// --- Sistema Toast (notifiche non bloccanti) ---
+class ToastManager {
+    constructor() {
+        this.container = document.getElementById('toastContainer');
+    }
+
+    show(message, type = 'info', duration = 3000) {
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        toast.textContent = message;
+        this.container.appendChild(toast);
+        requestAnimationFrame(() => toast.classList.add('show'));
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        }, duration);
+    }
+
+    success(msg) { this.show(msg, 'success'); }
+    error(msg) { this.show(msg, 'error', 5000); }
+    warning(msg) { this.show(msg, 'warning', 4000); }
+    info(msg) { this.show(msg, 'info'); }
+}
+
+// --- Classe principale ---
 class DrawingsManager {
     constructor() {
         this.drawings = this.loadDrawings();
         this.currentEditId = null;
+        this.toast = new ToastManager();
 
-        // Sistema utenti con ruoli diversi
-        // MODIFICA LE PASSWORD QUI:
+        // Ordinamento tabella
+        this.sortColumn = 'createdAt';
+        this.sortDirection = 'desc';
+
+        // Password hash SHA-256 (per generare un nuovo hash: aprire la console e digitare sha256('nuovaPassword'))
+        // admin123, collab123, utente1, utente2, utente3
         this.users = {
-            'admin': { password: 'admin123', role: 'admin', name: 'Amministratore' },
-            'collaboratore': { password: 'collab123', role: 'collaboratore', name: 'Collaboratore' },
-            'utente1': { password: 'utente1', role: 'visualizzatore', name: 'Utente 1' },
-            'utente2': { password: 'utente2', role: 'visualizzatore', name: 'Utente 2' },
-            'utente3': { password: 'utente3', role: 'visualizzatore', name: 'Utente 3' }
+            'admin': { hash: '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', role: 'admin', name: 'Amministratore' },
+            'collaboratore': { hash: 'e3e4116aa49f779d0c96ae6eaa7a6b29da6fd0ef73d85b187471aeabc3b25428', role: 'collaboratore', name: 'Collaboratore' },
+            'utente1': { hash: '9cdee5050fb57181e54646f487753dde73bc8e8c73843de92d01427420c64c23', role: 'visualizzatore', name: 'Utente 1' },
+            'utente2': { hash: 'df21b1245419763295b2d582072ada296c09b458227f6176d36634c88c179a91', role: 'visualizzatore', name: 'Utente 2' },
+            'utente3': { hash: 'd7843fc12f2260537ce74087e09f296cab80c1b4b1e8c5eb2d1b6250b5f5ce51', role: 'visualizzatore', name: 'Utente 3' }
+        };
+
+        // Cache dei riferimenti DOM
+        this.dom = {
+            tableBody: document.getElementById('tableBody'),
+            modal: document.getElementById('modal'),
+            adminModal: document.getElementById('adminModal'),
+            drawingForm: document.getElementById('drawingForm'),
+            modalTitle: document.getElementById('modalTitle'),
+            adminPassword: document.getElementById('adminPassword'),
+            userRole: document.getElementById('userRole'),
+            toggleAdminBtn: document.getElementById('toggleAdminBtn'),
+            addDrawingBtn: document.getElementById('addDrawingBtn'),
+            filterNumero: document.getElementById('filterNumero'),
+            filterCliente: document.getElementById('filterCliente'),
+            filterCantiere: document.getElementById('filterCantiere'),
+            filterOggetto: document.getElementById('filterOggetto'),
+            exportBtn: document.getElementById('exportBtn'),
+            importBtn: document.getElementById('importBtn'),
+            importFile: document.getElementById('importFile')
         };
 
         this.currentUser = this.loadCurrentUser();
         this.initializeEventListeners();
         this.updateUserInterface();
         this.renderTable();
+        this.checkBackupReminder();
     }
 
+    // --- Storage ---
     loadDrawings() {
         const stored = localStorage.getItem('drawings');
         return stored ? JSON.parse(stored) : [];
@@ -41,48 +112,50 @@ class DrawingsManager {
     saveDrawings() {
         try {
             localStorage.setItem('drawings', JSON.stringify(this.drawings));
-            console.log('✅ Dati salvati con successo:', this.drawings.length, 'disegni');
+            localStorage.setItem('lastSaveDate', new Date().toISOString());
         } catch (error) {
-            console.error('❌ ERRORE nel salvataggio:', error);
-            alert('ERRORE: Impossibile salvare i dati!\n\n' +
-                  'Possibili cause:\n' +
-                  '1. localStorage bloccato (file:// invece di http://)\n' +
-                  '2. Spazio localStorage esaurito\n\n' +
-                  'Errore: ' + error.message);
+            this.toast.error('ERRORE: Impossibile salvare i dati! Spazio localStorage esaurito o bloccato.');
+            console.error('Errore salvataggio:', error);
         }
     }
 
-    initializeEventListeners() {
-        // Bottone nuovo disegno
-        document.getElementById('addDrawingBtn').addEventListener('click', () => {
-            this.openModal();
-        });
+    // --- Promemoria backup ---
+    checkBackupReminder() {
+        const lastExport = localStorage.getItem('lastExportDate');
+        if (!lastExport && this.drawings.length > 0) {
+            this.toast.warning('Non hai mai esportato un backup. Usa il pulsante Esporta per salvare i tuoi dati.');
+            return;
+        }
+        if (lastExport && this.drawings.length > 0) {
+            const daysSince = (Date.now() - new Date(lastExport).getTime()) / (1000 * 60 * 60 * 24);
+            if (daysSince > 7) {
+                this.toast.warning(`Ultimo backup: ${Math.floor(daysSince)} giorni fa. Ricordati di esportare!`);
+            }
+        }
+    }
 
-        // Bottone annulla
-        document.getElementById('cancelBtn').addEventListener('click', () => {
-            this.closeModal();
-        });
+    // --- Event Listeners ---
+    initializeEventListeners() {
+        // Nuovo disegno
+        this.dom.addDrawingBtn.addEventListener('click', () => this.openModal());
+
+        // Annulla modal
+        document.getElementById('cancelBtn').addEventListener('click', () => this.closeModal());
 
         // Click fuori dal modal
         window.addEventListener('click', (e) => {
-            const modal = document.getElementById('modal');
-            const adminModal = document.getElementById('adminModal');
-            if (e.target === modal) {
-                this.closeModal();
-            }
-            if (e.target === adminModal) {
-                this.closeAdminModal();
-            }
+            if (e.target === this.dom.modal) this.closeModal();
+            if (e.target === this.dom.adminModal) this.closeAdminModal();
         });
 
         // Form submit
-        document.getElementById('drawingForm').addEventListener('submit', (e) => {
+        this.dom.drawingForm.addEventListener('submit', (e) => {
             e.preventDefault();
             this.saveDrawing();
         });
 
-        // Toggle admin/login
-        document.getElementById('toggleAdminBtn').addEventListener('click', () => {
+        // Login/Logout
+        this.dom.toggleAdminBtn.addEventListener('click', () => {
             if (this.currentUser) {
                 this.logout();
             } else {
@@ -98,103 +171,115 @@ class DrawingsManager {
 
         // Chiudi admin modal
         document.querySelectorAll('.close-admin').forEach(btn => {
-            btn.addEventListener('click', () => {
-                this.closeAdminModal();
-            });
+            btn.addEventListener('click', () => this.closeAdminModal());
         });
 
         // Filtri
-        document.getElementById('filterNumero').addEventListener('input', () => this.applyFilters());
-        document.getElementById('filterCliente').addEventListener('input', () => this.applyFilters());
-        document.getElementById('filterCantiere').addEventListener('input', () => this.applyFilters());
-        document.getElementById('filterOggetto').addEventListener('input', () => this.applyFilters());
+        this.dom.filterNumero.addEventListener('input', () => this.applyFilters());
+        this.dom.filterCliente.addEventListener('input', () => this.applyFilters());
+        this.dom.filterCantiere.addEventListener('input', () => this.applyFilters());
+        this.dom.filterOggetto.addEventListener('input', () => this.applyFilters());
 
         // Azzera filtri
         document.getElementById('clearFilters').addEventListener('click', () => {
-            document.getElementById('filterNumero').value = '';
-            document.getElementById('filterCliente').value = '';
-            document.getElementById('filterCantiere').value = '';
-            document.getElementById('filterOggetto').value = '';
+            this.dom.filterNumero.value = '';
+            this.dom.filterCliente.value = '';
+            this.dom.filterCantiere.value = '';
+            this.dom.filterOggetto.value = '';
             this.applyFilters();
         });
 
-        // Esporta dati
-        document.getElementById('exportBtn').addEventListener('click', () => {
-            this.exportData();
-        });
+        // Esporta/Importa
+        this.dom.exportBtn.addEventListener('click', () => this.exportData());
+        this.dom.importBtn.addEventListener('click', () => this.dom.importFile.click());
+        this.dom.importFile.addEventListener('change', (e) => this.importData(e));
 
-        // Importa dati - click sul pulsante apre il file picker
-        document.getElementById('importBtn').addEventListener('click', () => {
-            document.getElementById('importFile').click();
-        });
-
-        // Importa dati - quando viene selezionato un file
-        document.getElementById('importFile').addEventListener('change', (e) => {
-            this.importData(e);
-        });
-    }
-
-    openModal(drawing = null) {
-        // Blocca se non può modificare
-        if (!this.canEdit()) {
-            if (this.isViewer()) {
-                alert('⚠️ Sei un visualizzatore.\n\nPuoi solo vedere i dati, non modificarli.');
-            } else {
-                alert('⚠️ Devi effettuare il login per modificare i dati.');
+        // Event delegation per pulsanti nella tabella (elimina inline onclick)
+        this.dom.tableBody.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-action]');
+            if (!btn) return;
+            const action = btn.dataset.action;
+            const id = Number(btn.dataset.id);
+            if (action === 'edit') {
+                const drawing = this.drawings.find(d => d.id === id);
+                if (drawing) this.openModal(drawing);
+            } else if (action === 'delete') {
+                this.deleteDrawing(id);
+            } else if (action === 'toggle') {
+                this.toggleCommessa(id);
             }
-            return;
-        }
+        });
 
-        const modal = document.getElementById('modal');
-        const form = document.getElementById('drawingForm');
-        const title = document.getElementById('modalTitle');
+        // Ordinamento colonne (click sugli header)
+        document.querySelectorAll('th[data-sort]').forEach(th => {
+            th.addEventListener('click', () => {
+                const col = th.dataset.sort;
+                if (this.sortColumn === col) {
+                    this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+                } else {
+                    this.sortColumn = col;
+                    this.sortDirection = 'asc';
+                }
+                this.updateSortIndicators();
+                this.applyFilters();
+            });
+        });
 
-        if (drawing) {
-            title.textContent = 'Modifica Disegno';
-            this.currentEditId = drawing.id;
-            this.populateForm(drawing);
-        } else {
-            title.textContent = 'Nuovo Disegno';
-            this.currentEditId = null;
-            form.reset();
-            // Suggerisci il prossimo numero
-            this.suggestNextNumber();
-            // Imposta la data odierna come default
-            this.setTodayDate();
-        }
-
-        // Popola gli autocomplete con i valori già usati
-        this.populateAutocomplete();
-
-        modal.style.display = 'block';
-        this.setFieldPermissions();
+        // Checkbox "Non Necessario" - disabilita campi corrispondenti
+        const naCheckboxes = [
+            { checkbox: 'disegniOfficinaNonNecessario', fields: ['disegniOfficinaConsegnato', 'disegniOfficinaData'] },
+            { checkbox: 'disegniCantiereNonNecessario', fields: ['disegniCantiereConsegnato', 'disegniCantiereData'] },
+            { checkbox: 'rdoMaterialiNonNecessario', fields: ['rdoMaterialiConsegnato', 'rdoMaterialiData', 'ordineMateriali', 'arrivoMateriale'] },
+            { checkbox: 'rdoBulloneriaNonNecessario', fields: ['rdoBulloneriaConsegnato', 'rdoBulloneriaData', 'ordineBulloneria', 'arrivoBulloneria'] },
+            { checkbox: 'dxfPiastreNonNecessario', fields: ['dxfPiastreConsegnato', 'dxfPiastreData'] }
+        ];
+        naCheckboxes.forEach(({ checkbox, fields }) => {
+            const cb = document.getElementById(checkbox);
+            if (cb) {
+                cb.addEventListener('change', () => {
+                    fields.forEach(fieldId => {
+                        const field = document.getElementById(fieldId);
+                        if (field) {
+                            field.disabled = cb.checked;
+                            field.style.opacity = cb.checked ? '0.4' : '';
+                            if (cb.checked) field.value = '';
+                        }
+                    });
+                });
+            }
+        });
     }
 
-    closeModal() {
-        document.getElementById('modal').style.display = 'none';
-        document.getElementById('drawingForm').reset();
-        this.currentEditId = null;
+    updateSortIndicators() {
+        document.querySelectorAll('th[data-sort]').forEach(th => {
+            th.classList.remove('sort-asc', 'sort-desc');
+            if (th.dataset.sort === this.sortColumn) {
+                th.classList.add(this.sortDirection === 'asc' ? 'sort-asc' : 'sort-desc');
+            }
+        });
     }
 
+    // --- Autenticazione ---
     openAdminModal() {
-        document.getElementById('adminModal').style.display = 'block';
-        document.getElementById('adminPassword').value = '';
+        this.dom.adminModal.style.display = 'block';
+        this.dom.adminPassword.value = '';
+        this.dom.adminPassword.focus();
     }
 
     closeAdminModal() {
-        document.getElementById('adminModal').style.display = 'none';
-        document.getElementById('adminPassword').value = '';
+        this.dom.adminModal.style.display = 'none';
+        this.dom.adminPassword.value = '';
     }
 
-    checkAdminPassword() {
-        const password = document.getElementById('adminPassword').value;
+    async checkAdminPassword() {
+        const password = this.dom.adminPassword.value;
+        const passwordHash = await sha256(password);
 
-        // Cerca l'utente con questa password
         let foundUser = null;
         let foundUsername = null;
 
         for (const [username, userData] of Object.entries(this.users)) {
-            if (userData.password === password) {
+            if (userData.hash === passwordHash) {
                 foundUser = userData;
                 foundUsername = username;
                 break;
@@ -209,31 +294,30 @@ class DrawingsManager {
             };
             this.saveCurrentUser();
             this.updateUserInterface();
-            this.renderTable(); // Aggiorna la tabella per mostrare/nascondere i pulsanti
+            this.renderTable();
             this.closeAdminModal();
-            alert(`✅ Login effettuato!\n\nBenvenuto ${foundUser.name}!\nRuolo: ${this.getRoleDisplayName(foundUser.role)}`);
+            this.toast.success(`Benvenuto ${foundUser.name}! Ruolo: ${this.getRoleDisplayName(foundUser.role)}`);
         } else {
-            alert('❌ Password errata!');
-            document.getElementById('adminPassword').value = '';
+            this.toast.error('Password errata!');
+            this.dom.adminPassword.value = '';
+            this.dom.adminPassword.focus();
         }
     }
 
     getRoleDisplayName(role) {
         const names = {
-            'admin': 'Amministratore (può modificare tutto)',
-            'collaboratore': 'Collaboratore (può modificare tutto)',
+            'admin': 'Amministratore',
+            'collaboratore': 'Collaboratore',
             'visualizzatore': 'Visualizzatore (solo lettura)'
         };
         return names[role] || role;
     }
 
     canEdit() {
-        // Admin e Collaboratore possono modificare
         return this.currentUser && (this.currentUser.role === 'admin' || this.currentUser.role === 'collaboratore');
     }
 
     isViewer() {
-        // Visualizzatore può solo vedere
         return this.currentUser && this.currentUser.role === 'visualizzatore';
     }
 
@@ -243,149 +327,135 @@ class DrawingsManager {
             this.currentUser = null;
             this.saveCurrentUser();
             this.updateUserInterface();
-            this.renderTable(); // Aggiorna la tabella per nascondere i pulsanti
+            this.renderTable();
+            this.toast.info('Logout effettuato.');
         }
     }
 
     updateUserInterface() {
-        const userRole = document.getElementById('userRole');
-        const toggleBtn = document.getElementById('toggleAdminBtn');
-        const addDrawingBtn = document.getElementById('addDrawingBtn');
-
         if (this.currentUser) {
-            // Utente loggato
-            const roleIcons = {
-                'admin': '👑',
-                'collaboratore': '🤝',
-                'visualizzatore': '👁️'
-            };
-            const icon = roleIcons[this.currentUser.role] || '👤';
-            userRole.textContent = `${icon} ${this.currentUser.name}`;
-            userRole.classList.add('admin');
-            toggleBtn.textContent = '🚪 Logout';
-            toggleBtn.classList.add('logout');
+            const roleIcons = { 'admin': '\u{1F451}', 'collaboratore': '\u{1F91D}', 'visualizzatore': '\u{1F441}\uFE0F' };
+            const icon = roleIcons[this.currentUser.role] || '\u{1F464}';
+            this.dom.userRole.textContent = `${icon} ${this.currentUser.name}`;
+            this.dom.userRole.classList.add('admin');
+            this.dom.toggleAdminBtn.textContent = '\u{1F6AA} Logout';
+            this.dom.toggleAdminBtn.classList.add('logout');
+            this.dom.addDrawingBtn.style.display = this.isViewer() ? 'none' : '';
+        } else {
+            this.dom.userRole.textContent = '\u{1F464} Ospite';
+            this.dom.userRole.classList.remove('admin');
+            this.dom.toggleAdminBtn.textContent = '\u{1F510} Login';
+            this.dom.toggleAdminBtn.classList.remove('logout');
+            this.dom.addDrawingBtn.style.display = 'none';
+        }
+    }
 
-            // Nascondi "Nuovo Disegno" per i visualizzatori
+    // --- Modal disegno ---
+    openModal(drawing = null) {
+        if (!this.canEdit()) {
             if (this.isViewer()) {
-                addDrawingBtn.style.display = 'none';
+                this.toast.warning('Sei un visualizzatore. Puoi solo vedere i dati, non modificarli.');
             } else {
-                addDrawingBtn.style.display = '';
+                this.toast.warning('Devi effettuare il login per modificare i dati.');
             }
-        } else {
-            // Nessun utente loggato
-            userRole.textContent = '👤 Ospite';
-            userRole.classList.remove('admin');
-            toggleBtn.textContent = '🔐 Login';
-            toggleBtn.classList.remove('logout');
-            addDrawingBtn.style.display = 'none'; // Ospiti non possono aggiungere
+            return;
         }
+
+        if (drawing) {
+            this.dom.modalTitle.textContent = 'Modifica Disegno';
+            this.currentEditId = drawing.id;
+            this.populateForm(drawing);
+        } else {
+            this.dom.modalTitle.textContent = 'Nuovo Disegno';
+            this.currentEditId = null;
+            this.dom.drawingForm.reset();
+            this.suggestNextNumber();
+            this.setTodayDate();
+        }
+
+        this.populateAutocomplete();
+        this.dom.modal.style.display = 'block';
+        this.syncNonNecessarioFields();
     }
 
-    setFieldPermissions() {
-        // Tutti i campi del form
-        const allFields = [
-            'numeroDisegno', 'dataDisegno', 'cliente', 'cantiere', 'oggettoLavoro',
-            'disegniOfficinaConsegnato', 'disegniOfficinaData',
-            'disegniCantiereConsegnato', 'disegniCantiereData',
-            'rdoMaterialiConsegnato', 'rdoMaterialiData',
-            'rdoBulloneriaConsegnato', 'rdoBulloneriaData',
-            'dxfPiastreConsegnato', 'dxfPiastreData',
-            'ordineMateriali', 'arrivoMateriale',
-            'ordineBulloneria', 'arrivoBulloneria',
-            'note'
+    closeModal() {
+        this.dom.modal.style.display = 'none';
+        this.dom.drawingForm.reset();
+        this.currentEditId = null;
+    }
+
+    syncNonNecessarioFields() {
+        // Sincronizza lo stato disabilitato dei campi in base ai checkbox "Non Necessario"
+        const mappings = [
+            { checkbox: 'disegniOfficinaNonNecessario', fields: ['disegniOfficinaConsegnato', 'disegniOfficinaData'] },
+            { checkbox: 'disegniCantiereNonNecessario', fields: ['disegniCantiereConsegnato', 'disegniCantiereData'] },
+            { checkbox: 'rdoMaterialiNonNecessario', fields: ['rdoMaterialiConsegnato', 'rdoMaterialiData', 'ordineMateriali', 'arrivoMateriale'] },
+            { checkbox: 'rdoBulloneriaNonNecessario', fields: ['rdoBulloneriaConsegnato', 'rdoBulloneriaData', 'ordineBulloneria', 'arrivoBulloneria'] },
+            { checkbox: 'dxfPiastreNonNecessario', fields: ['dxfPiastreConsegnato', 'dxfPiastreData'] }
         ];
-
-        if (this.canEdit()) {
-            // Admin e Collaboratore: possono modificare TUTTO
-            allFields.forEach(fieldId => {
-                const field = document.getElementById(fieldId);
-                if (field) {
-                    field.disabled = false;
-                    field.style.backgroundColor = '';
-                    field.style.opacity = '';
-                    field.style.cursor = '';
-                }
-            });
-        } else {
-            // Visualizzatori e Ospiti: tutti i campi disabilitati
-            allFields.forEach(fieldId => {
-                const field = document.getElementById(fieldId);
-                if (field) {
-                    field.disabled = true;
-                    field.style.backgroundColor = 'var(--bg-primary)';
-                    field.style.opacity = '0.6';
-                    field.style.cursor = 'not-allowed';
-                }
-            });
-        }
+        mappings.forEach(({ checkbox, fields }) => {
+            const cb = document.getElementById(checkbox);
+            if (cb) {
+                fields.forEach(fieldId => {
+                    const field = document.getElementById(fieldId);
+                    if (field) {
+                        field.disabled = cb.checked;
+                        field.style.opacity = cb.checked ? '0.4' : '';
+                    }
+                });
+            }
+        });
     }
 
+    // --- Autocomplete ---
     populateAutocomplete() {
-        // Raccoglie tutti i valori unici per Cliente
-        const clienti = [...new Set(this.drawings
-            .map(d => d.cliente)
-            .filter(c => c && c.trim() !== '')
-        )].sort();
+        const clienti = [...new Set(this.drawings.map(d => d.cliente).filter(c => c && c.trim()))].sort();
+        const cantieri = [...new Set(this.drawings.map(d => d.cantiere).filter(c => c && c.trim()))].sort();
 
-        // Raccoglie tutti i valori unici per Cantiere
-        const cantieri = [...new Set(this.drawings
-            .map(d => d.cantiere)
-            .filter(c => c && c.trim() !== '')
-        )].sort();
-
-        // Raccoglie tutti i valori unici per "Consegnato a"
         const consegnati = new Set();
         this.drawings.forEach(d => {
-            if (d.disegniOfficina?.consegnato) consegnati.add(d.disegniOfficina.consegnato.trim());
-            if (d.disegniCantiere?.consegnato) consegnati.add(d.disegniCantiere.consegnato.trim());
-            if (d.rdoMateriali?.consegnato) consegnati.add(d.rdoMateriali.consegnato.trim());
-            if (d.rdoBulloneria?.consegnato) consegnati.add(d.rdoBulloneria.consegnato.trim());
-            if (d.dxfPiastre?.consegnato) consegnati.add(d.dxfPiastre.consegnato.trim());
+            ['disegniOfficina', 'disegniCantiere', 'rdoMateriali', 'rdoBulloneria', 'dxfPiastre'].forEach(key => {
+                if (d[key]?.consegnato?.trim()) consegnati.add(d[key].consegnato.trim());
+            });
         });
-        const consegnatiArray = [...consegnati].filter(c => c !== '').sort();
 
-        // Popola le datalist
         this.updateDatalist('clientiList', clienti);
         this.updateDatalist('cantieriList', cantieri);
-        this.updateDatalist('consegnatoList', consegnatiArray);
+        this.updateDatalist('consegnatoList', [...consegnati].sort());
     }
 
     updateDatalist(datalistId, values) {
         const datalist = document.getElementById(datalistId);
         if (datalist) {
-            datalist.innerHTML = values.map(value =>
-                `<option value="${value}">`
-            ).join('');
+            datalist.innerHTML = values.map(v => `<option value="${escapeHtml(v)}">`).join('');
         }
     }
 
+    // --- Numerazione automatica ---
     suggestNextNumber() {
         const currentYear = new Date().getFullYear();
-        const drawingsThisYear = this.drawings.filter(d =>
-            d.numeroDisegno.includes(`/${currentYear}`)
-        );
+        const drawingsThisYear = this.drawings.filter(d => d.numeroDisegno.includes(`/${currentYear}`));
 
         if (drawingsThisYear.length > 0) {
             const numbers = drawingsThisYear.map(d => {
                 const match = d.numeroDisegno.match(/^(\d+)\//);
                 return match ? parseInt(match[1]) : 0;
             });
-            const maxNumber = Math.max(...numbers);
-            document.getElementById('numeroDisegno').value = `${maxNumber + 1}/${currentYear}`;
+            document.getElementById('numeroDisegno').value = `${Math.max(...numbers) + 1}/${currentYear}`;
         } else {
             document.getElementById('numeroDisegno').value = `890/${currentYear}`;
         }
     }
 
     setTodayDate() {
-        // Imposta la data odierna nel formato YYYY-MM-DD per l'input type="date"
         const today = new Date();
-        const year = today.getFullYear();
-        const month = String(today.getMonth() + 1).padStart(2, '0');
-        const day = String(today.getDate()).padStart(2, '0');
-        document.getElementById('dataDisegno').value = `${year}-${month}-${day}`;
+        const y = today.getFullYear();
+        const m = String(today.getMonth() + 1).padStart(2, '0');
+        const d = String(today.getDate()).padStart(2, '0');
+        document.getElementById('dataDisegno').value = `${y}-${m}-${d}`;
     }
 
+    // --- Popola form ---
     populateForm(drawing) {
         document.getElementById('numeroDisegno').value = drawing.numeroDisegno || '';
         document.getElementById('dataDisegno').value = drawing.dataDisegno || '';
@@ -420,11 +490,22 @@ class DrawingsManager {
         document.getElementById('note').value = drawing.note || '';
     }
 
+    // --- Salvataggio disegno (con controllo duplicati) ---
     saveDrawing() {
-        console.log('📝 Salvataggio in corso...');
+        const numeroDisegno = document.getElementById('numeroDisegno').value.trim();
+
+        // Controllo duplicati
+        const duplicato = this.drawings.find(d =>
+            d.numeroDisegno === numeroDisegno && d.id !== this.currentEditId
+        );
+        if (duplicato) {
+            this.toast.error(`Esiste gia un disegno con il numero "${numeroDisegno}". Usa un numero diverso.`);
+            return;
+        }
+
         const drawingData = {
-            id: this.currentEditId || Date.now(),
-            numeroDisegno: document.getElementById('numeroDisegno').value,
+            id: this.currentEditId || Date.now() + Math.floor(Math.random() * 1000),
+            numeroDisegno,
             dataDisegno: document.getElementById('dataDisegno').value,
             cliente: document.getElementById('cliente').value,
             cantiere: document.getElementById('cantiere').value,
@@ -461,100 +542,95 @@ class DrawingsManager {
             note: document.getElementById('note').value,
             stato: this.currentEditId ?
                 this.drawings.find(d => d.id === this.currentEditId)?.stato || 'preventivo' :
-                'preventivo', // I nuovi disegni partono come preventivi
+                'preventivo',
             createdAt: this.currentEditId ?
                 this.drawings.find(d => d.id === this.currentEditId)?.createdAt || Date.now() :
                 Date.now()
         };
 
         if (this.currentEditId) {
-            // Modifica esistente
             const index = this.drawings.findIndex(d => d.id === this.currentEditId);
             this.drawings[index] = drawingData;
-            console.log('✏️ Disegno modificato:', drawingData.numeroDisegno);
+            this.toast.success('Disegno modificato!');
         } else {
-            // Nuovo disegno
             this.drawings.push(drawingData);
-            console.log('➕ Nuovo disegno aggiunto:', drawingData.numeroDisegno);
+            this.toast.success('Nuovo disegno salvato!');
         }
 
         this.saveDrawings();
         this.renderTable();
         this.closeModal();
-
-        // Conferma visiva
-        const message = this.currentEditId ? 'Disegno modificato!' : 'Disegno salvato!';
-        console.log('✅', message);
     }
 
+    // --- Eliminazione ---
     deleteDrawing(id) {
-        if (confirm('Sei sicuro di voler eliminare questo disegno?')) {
+        const drawing = this.drawings.find(d => d.id === id);
+        const numero = drawing ? drawing.numeroDisegno : '';
+        if (confirm(`Sei sicuro di voler eliminare il disegno ${numero}?`)) {
             this.drawings = this.drawings.filter(d => d.id !== id);
             this.saveDrawings();
             this.renderTable();
+            this.toast.info(`Disegno ${numero} eliminato.`);
         }
     }
 
+    // --- Toggle stato ---
     toggleCommessa(id) {
         const drawing = this.drawings.find(d => d.id === id);
         if (drawing) {
-            if (drawing.stato === 'preventivo') {
-                drawing.stato = 'commessa';
-            } else {
-                drawing.stato = 'preventivo';
-            }
+            drawing.stato = drawing.stato === 'preventivo' ? 'commessa' : 'preventivo';
             this.saveDrawings();
             this.renderTable();
+            this.toast.info(`Disegno ${drawing.numeroDisegno}: ${drawing.stato === 'commessa' ? 'Commessa attivata' : 'Tornato a Preventivo'}`);
         }
     }
 
-    formatCellData(data, isRequired = false, isPreventivo = false, isNonNecessario = false) {
-        // Se è un preventivo, mostra solo "PREVENTIVO"
-        if (isPreventivo) {
-            return '<div class="cell-preventivo">📋 PREVENTIVO</div>';
-        }
+    // --- Formattazione celle (unificata, con XSS protection) ---
+    formatCellData(data, isRequired, isPreventivo, isNonNecessario) {
+        if (isPreventivo) return '<div class="cell-preventivo">\u{1F4CB} PREVENTIVO</div>';
+        if (isNonNecessario) return '<div class="cell-na-text">N/A</div>';
 
-        // Se è marcato come "Non necessario", mostra N/A in verde
-        if (isNonNecessario) {
-            return '<div class="cell-na-text">N/A</div>';
-        }
-
-        // Caso 1: Completamente vuoto
         if (!data || (!data.consegnato && !data.data)) {
-            if (isRequired) {
-                return `<div class="cell-empty">⚠️ NON CONSEGNATO</div>`;
-            }
-            return '<div class="cell-empty">-</div>';
+            return isRequired ? '<div class="cell-empty">\u26A0\uFE0F NON CONSEGNATO</div>' : '<div class="cell-empty">-</div>';
         }
 
-        // Caso 2: Parzialmente compilato (manca consegnato a OPPURE manca data)
         const hasConsegnato = data.consegnato && data.consegnato.trim() !== '';
         const hasData = data.data && data.data.trim() !== '';
 
         if (hasConsegnato && !hasData) {
-            return `
-                <div class="cell-data cell-partial">
-                    <div><strong>A:</strong> ${data.consegnato}</div>
-                    <div class="cell-warning">⚠️ MANCA DATA CONSEGNA</div>
-                </div>
-            `;
+            return `<div class="cell-data cell-partial"><div><strong>A:</strong> ${escapeHtml(data.consegnato)}</div><div class="cell-warning">\u26A0\uFE0F MANCA DATA CONSEGNA</div></div>`;
         }
-
         if (!hasConsegnato && hasData) {
-            return `
-                <div class="cell-data cell-partial">
-                    <div><strong>Data:</strong> ${this.formatDate(data.data)}</div>
-                    <div class="cell-warning">⚠️ MANCA DESTINATARIO</div>
-                </div>
-            `;
+            return `<div class="cell-data cell-partial"><div><strong>Data:</strong> ${this.formatDate(data.data)}</div><div class="cell-warning">\u26A0\uFE0F MANCA DESTINATARIO</div></div>`;
         }
 
-        // Caso 3: Completamente compilato
-        let html = '<div class="cell-data">';
-        html += `<div><strong>A:</strong> ${data.consegnato}</div>`;
-        html += `<div><strong>Data:</strong> ${this.formatDate(data.data)}</div>`;
-        html += '</div>';
-        return html;
+        return `<div class="cell-data"><div><strong>A:</strong> ${escapeHtml(data.consegnato)}</div><div><strong>Data:</strong> ${this.formatDate(data.data)}</div></div>`;
+    }
+
+    getCellClass(data, isRequired, isPreventivo, isNonNecessario) {
+        if (isPreventivo) return 'cell-preventivo-bg';
+        if (isNonNecessario) return 'cell-na';
+        if (!data || (!data.consegnato && !data.data)) return isRequired ? 'cell-incomplete' : '';
+
+        const hasConsegnato = data.consegnato && data.consegnato.trim() !== '';
+        const hasData = data.data && data.data.trim() !== '';
+        if ((hasConsegnato && !hasData) || (!hasConsegnato && hasData)) return 'cell-partial';
+        return 'cell-complete';
+    }
+
+    // Unificata: formatta un campo semplice (con supporto N/A)
+    formatSimpleField(value, isRequired, isPreventivo, isNonNecessario) {
+        if (isNonNecessario) return '<div class="cell-na-text">N/A</div>';
+        if (isPreventivo) return escapeHtml(value) || '-';
+        if (isRequired && (!value || value.trim() === '')) return '<div class="cell-empty">\u26A0\uFE0F NON INSERITO</div>';
+        return escapeHtml(value) || '-';
+    }
+
+    getSimpleFieldClass(value, isRequired, isPreventivo, isNonNecessario) {
+        if (isNonNecessario) return 'cell-na';
+        if (isPreventivo) return '';
+        if (isRequired) return (!value || value.trim() === '') ? 'cell-incomplete' : 'cell-complete';
+        return '';
     }
 
     formatDate(dateString) {
@@ -563,278 +639,197 @@ class DrawingsManager {
         return date.toLocaleDateString('it-IT');
     }
 
-    getCellClass(data, isRequired = false, isPreventivo = false, isNonNecessario = false) {
-        // Se è un preventivo, usa lo stile preventivo
-        if (isPreventivo) {
-            return 'cell-preventivo-bg';
+    formatDateField(value, isRequired, isPreventivo, isNonNecessario) {
+        if (isNonNecessario) return '<div class="cell-na-text">N/A</div>';
+        if (!isPreventivo && isRequired && (!value || value.trim() === '')) {
+            return '<div class="cell-empty">\u26A0\uFE0F NON INSERITO</div>';
         }
-
-        // Se è marcato come "Non necessario", usa lo stile N/A (verde)
-        if (isNonNecessario) {
-            return 'cell-na';
-        }
-
-        // Caso 1: Completamente vuoto
-        if (!data || (!data.consegnato && !data.data)) {
-            return isRequired ? 'cell-incomplete' : '';
-        }
-
-        // Caso 2: Parzialmente compilato
-        const hasConsegnato = data.consegnato && data.consegnato.trim() !== '';
-        const hasData = data.data && data.data.trim() !== '';
-
-        if ((hasConsegnato && !hasData) || (!hasConsegnato && hasData)) {
-            return 'cell-partial';
-        }
-
-        // Caso 3: Completamente compilato
-        return 'cell-complete';
-    }
-
-    // Funzioni per campi semplici con supporto N/A
-    formatSimpleFieldNA(value, isRequired, isPreventivo, isNonNecessario) {
-        if (isPreventivo) {
-            return value || '-';
-        }
-        if (isNonNecessario) {
-            return '<div class="cell-na-text">N/A</div>';
-        }
-        if (isRequired && (!value || value.trim() === '')) {
-            return '<div class="cell-empty">⚠️ NON INSERITO</div>';
-        }
-        return value || '-';
-    }
-
-    getSimpleFieldClassNA(value, isRequired, isPreventivo, isNonNecessario) {
-        if (isPreventivo) {
-            return '';
-        }
-        if (isNonNecessario) {
-            return 'cell-na';
-        }
-        if (isRequired) {
-            if (!value || value.trim() === '') {
-                return 'cell-incomplete';
-            }
-            return 'cell-complete';
-        }
-        return '';
+        return this.formatDate(value);
     }
 
     formatNotes(note) {
         if (!note || note.trim() === '') {
-            return {
-                html: '<div class="notes-status-none">Nessuna</div>',
-                hasNotes: false
-            };
+            return { html: '<div class="notes-status-none">Nessuna</div>', hasNotes: false };
         }
-
-        return {
-            html: '<div class="notes-status-present">Presenti</div>',
-            hasNotes: true
-        };
+        return { html: '<div class="notes-status-present">Presenti</div>', hasNotes: true };
     }
 
-    formatSimpleField(value, isRequired, isPreventivo) {
-        // Se è preventivo, mostra solo il valore
-        if (isPreventivo) {
-            return value || '-';
-        }
-
-        // Se è commessa e il campo è richiesto
-        if (isRequired) {
-            if (!value || value.trim() === '') {
-                return '<div class="cell-empty">⚠️ NON INSERITO</div>';
+    // --- Ordinamento ---
+    sortDrawings(drawings) {
+        const sorted = [...drawings];
+        sorted.sort((a, b) => {
+            let valA, valB;
+            switch (this.sortColumn) {
+                case 'numeroDisegno':
+                    valA = a.numeroDisegno.toLowerCase();
+                    valB = b.numeroDisegno.toLowerCase();
+                    break;
+                case 'cliente':
+                    valA = (a.cliente || '').toLowerCase();
+                    valB = (b.cliente || '').toLowerCase();
+                    break;
+                case 'cantiere':
+                    valA = (a.cantiere || '').toLowerCase();
+                    valB = (b.cantiere || '').toLowerCase();
+                    break;
+                case 'oggettoLavoro':
+                    valA = (a.oggettoLavoro || '').toLowerCase();
+                    valB = (b.oggettoLavoro || '').toLowerCase();
+                    break;
+                case 'stato':
+                    valA = a.stato || '';
+                    valB = b.stato || '';
+                    break;
+                case 'createdAt':
+                default:
+                    valA = a.createdAt || 0;
+                    valB = b.createdAt || 0;
+                    break;
             }
-        }
-
-        return value || '-';
+            if (valA < valB) return this.sortDirection === 'asc' ? -1 : 1;
+            if (valA > valB) return this.sortDirection === 'asc' ? 1 : -1;
+            return 0;
+        });
+        return sorted;
     }
 
-    getSimpleFieldClass(value, isRequired, isPreventivo) {
-        if (isPreventivo) {
-            return '';
-        }
-
-        if (isRequired) {
-            if (!value || value.trim() === '') {
-                return 'cell-incomplete';
-            }
-            return 'cell-complete';
-        }
-
-        return '';
-    }
-
+    // --- Rendering tabella (con event delegation, XSS safe) ---
     renderTable(filteredDrawings = null) {
-        const tbody = document.getElementById('tableBody');
         const drawingsToRender = filteredDrawings || this.drawings;
+        const sortedDrawings = this.sortDrawings(drawingsToRender);
 
-        // Ordina per data di creazione (più recente prima)
-        const sortedDrawings = [...drawingsToRender].sort((a, b) => b.createdAt - a.createdAt);
+        // Conteggio disegni
+        const countEl = document.getElementById('drawingsCount');
+        if (countEl) {
+            countEl.textContent = `${sortedDrawings.length} disegn${sortedDrawings.length === 1 ? 'o' : 'i'}`;
+        }
 
         if (sortedDrawings.length === 0) {
-            tbody.innerHTML = `
-                <tr>
-                    <td colspan="15" style="text-align: center; padding: 40px; color: var(--text-secondary);">
-                        Nessun disegno presente. Clicca su "+ Nuovo Disegno" per iniziare.
-                    </td>
-                </tr>
-            `;
+            this.dom.tableBody.innerHTML = `
+                <tr><td colspan="15" style="text-align:center;padding:40px;color:var(--text-secondary);">
+                    Nessun disegno presente. Clicca su "+ Nuovo Disegno" per iniziare.
+                </td></tr>`;
             return;
         }
 
-        tbody.innerHTML = sortedDrawings.map(drawing => {
-            // Determina se è un preventivo o una commessa
-            const isPreventivo = drawing.stato === 'preventivo';
-            const isDxfRequired = !isPreventivo; // DXF obbligatorio solo per commesse
-
-            // Flag "Non Necessario" per ogni sezione
-            const disegniOfficinaNa = drawing.disegniOfficinaNonNecessario || false;
-            const disegniCantiereNa = drawing.disegniCantiereNonNecessario || false;
-            const rdoMaterialiNa = drawing.rdoMaterialiNonNecessario || false;
-            const rdoBulloneriaNa = drawing.rdoBulloneriaNonNecessario || false;
-            const dxfPiastreNa = drawing.dxfPiastreNonNecessario || false;
+        this.dom.tableBody.innerHTML = sortedDrawings.map(drawing => {
+            const isP = drawing.stato === 'preventivo';
+            const oNa = drawing.disegniOfficinaNonNecessario || false;
+            const cNa = drawing.disegniCantiereNonNecessario || false;
+            const mNa = drawing.rdoMaterialiNonNecessario || false;
+            const bNa = drawing.rdoBulloneriaNonNecessario || false;
+            const dNa = drawing.dxfPiastreNonNecessario || false;
+            const notesData = this.formatNotes(drawing.note);
 
             return `
-                <tr class="${isPreventivo ? 'row-preventivo' : ''}">
+                <tr class="${isP ? 'row-preventivo' : ''}">
                     <td>
-                        <strong>${drawing.numeroDisegno}</strong>
-                        ${isPreventivo ? '<br><span class="badge-preventivo">PREVENTIVO</span>' : '<span class="badge-commessa">COMMESSA</span>'}
+                        <strong>${escapeHtml(drawing.numeroDisegno)}</strong>
+                        ${isP ? '<br><span class="badge-preventivo">PREVENTIVO</span>' : '<span class="badge-commessa">COMMESSA</span>'}
                     </td>
-                    <td>${drawing.cliente || '-'}</td>
-                    <td>${drawing.cantiere || '-'}</td>
-                    <td>${drawing.oggettoLavoro || '-'}</td>
-                    <td class="${this.getCellClass(drawing.disegniOfficina, true, isPreventivo, disegniOfficinaNa)}">
-                        ${this.formatCellData(drawing.disegniOfficina, true, isPreventivo, disegniOfficinaNa)}
+                    <td>${escapeHtml(drawing.cliente) || '-'}</td>
+                    <td>${escapeHtml(drawing.cantiere) || '-'}</td>
+                    <td>${escapeHtml(drawing.oggettoLavoro) || '-'}</td>
+                    <td class="${this.getCellClass(drawing.disegniOfficina, true, isP, oNa)}">
+                        ${this.formatCellData(drawing.disegniOfficina, true, isP, oNa)}
                     </td>
-                    <td class="${this.getCellClass(drawing.disegniCantiere, true, isPreventivo, disegniCantiereNa)}">
-                        ${this.formatCellData(drawing.disegniCantiere, true, isPreventivo, disegniCantiereNa)}
+                    <td class="${this.getCellClass(drawing.disegniCantiere, true, isP, cNa)}">
+                        ${this.formatCellData(drawing.disegniCantiere, true, isP, cNa)}
                     </td>
-                    <td class="${this.getCellClass(drawing.rdoMateriali, true, isPreventivo, rdoMaterialiNa)}">
-                        ${this.formatCellData(drawing.rdoMateriali, true, isPreventivo, rdoMaterialiNa)}
+                    <td class="${this.getCellClass(drawing.rdoMateriali, true, isP, mNa)}">
+                        ${this.formatCellData(drawing.rdoMateriali, true, isP, mNa)}
                     </td>
-                    <td class="${this.getSimpleFieldClassNA(drawing.ordineMateriali, !isPreventivo, isPreventivo, rdoMaterialiNa)}">
-                        ${this.formatSimpleFieldNA(drawing.ordineMateriali, !isPreventivo, isPreventivo, rdoMaterialiNa)}
+                    <td class="${this.getSimpleFieldClass(drawing.ordineMateriali, !isP, isP, mNa)}">
+                        ${this.formatSimpleField(drawing.ordineMateriali, !isP, isP, mNa)}
                     </td>
-                    <td class="${this.getSimpleFieldClassNA(drawing.arrivoMateriale, !isPreventivo, isPreventivo, rdoMaterialiNa)}">
-                        ${rdoMaterialiNa ? '<div class="cell-na-text">N/A</div>' :
-                            (!isPreventivo && (!drawing.arrivoMateriale || drawing.arrivoMateriale.trim() === '')
-                            ? '<div class="cell-empty">⚠️ NON INSERITO</div>'
-                            : this.formatDate(drawing.arrivoMateriale))}
+                    <td class="${this.getSimpleFieldClass(drawing.arrivoMateriale, !isP, isP, mNa)}">
+                        ${this.formatDateField(drawing.arrivoMateriale, !isP, isP, mNa)}
                     </td>
-                    <td class="${this.getCellClass(drawing.rdoBulloneria, true, isPreventivo, rdoBulloneriaNa)}">
-                        ${this.formatCellData(drawing.rdoBulloneria, true, isPreventivo, rdoBulloneriaNa)}
+                    <td class="${this.getCellClass(drawing.rdoBulloneria, true, isP, bNa)}">
+                        ${this.formatCellData(drawing.rdoBulloneria, true, isP, bNa)}
                     </td>
-                    <td class="${this.getSimpleFieldClassNA(drawing.ordineBulloneria, !isPreventivo, isPreventivo, rdoBulloneriaNa)}">
-                        ${this.formatSimpleFieldNA(drawing.ordineBulloneria, !isPreventivo, isPreventivo, rdoBulloneriaNa)}
+                    <td class="${this.getSimpleFieldClass(drawing.ordineBulloneria, !isP, isP, bNa)}">
+                        ${this.formatSimpleField(drawing.ordineBulloneria, !isP, isP, bNa)}
                     </td>
-                    <td class="${this.getSimpleFieldClassNA(drawing.arrivoBulloneria, !isPreventivo, isPreventivo, rdoBulloneriaNa)}">
-                        ${rdoBulloneriaNa ? '<div class="cell-na-text">N/A</div>' :
-                            (!isPreventivo && (!drawing.arrivoBulloneria || drawing.arrivoBulloneria.trim() === '')
-                            ? '<div class="cell-empty">⚠️ NON INSERITO</div>'
-                            : this.formatDate(drawing.arrivoBulloneria))}
+                    <td class="${this.getSimpleFieldClass(drawing.arrivoBulloneria, !isP, isP, bNa)}">
+                        ${this.formatDateField(drawing.arrivoBulloneria, !isP, isP, bNa)}
                     </td>
-                    <td class="${this.getCellClass(drawing.dxfPiastre, isDxfRequired, isPreventivo, dxfPiastreNa)}">
-                        ${this.formatCellData(drawing.dxfPiastre, isDxfRequired, isPreventivo, dxfPiastreNa)}
+                    <td class="${this.getCellClass(drawing.dxfPiastre, !isP, isP, dNa)}">
+                        ${this.formatCellData(drawing.dxfPiastre, !isP, isP, dNa)}
                     </td>
-                    <td class="${(() => {
-                        const notesData = this.formatNotes(drawing.note);
-                        return notesData.hasNotes ? 'cell-notes-pending' : 'cell-notes-complete';
-                    })()}">
-                        ${this.formatNotes(drawing.note).html}
+                    <td class="${notesData.hasNotes ? 'cell-notes-pending' : 'cell-notes-complete'}">
+                        ${notesData.html}
                     </td>
                     <td>
                         ${this.canEdit() ? `
                         <div class="actions-cell">
-                            <button class="btn-toggle-commessa ${isPreventivo ? 'btn-activate' : 'btn-deactivate'}"
-                                    onclick="manager.toggleCommessa(${drawing.id})"
-                                    title="${isPreventivo ? 'Attiva come Commessa' : 'Torna a Preventivo'}">
-                                ${isPreventivo ? '🚀 Attiva Commessa' : '📋 Torna a Preventivo'}
+                            <button class="btn-toggle-commessa ${isP ? 'btn-activate' : 'btn-deactivate'}"
+                                    data-action="toggle" data-id="${drawing.id}"
+                                    title="${isP ? 'Attiva come Commessa' : 'Torna a Preventivo'}">
+                                ${isP ? '\u{1F680} Commessa' : '\u{1F4CB} Preventivo'}
                             </button>
-                            <button class="btn-edit" onclick="manager.openModal(${JSON.stringify(drawing).replace(/"/g, '&quot;')})">
-                                ✏️ Modifica
-                            </button>
+                            <button class="btn-edit" data-action="edit" data-id="${drawing.id}">\u270F\uFE0F Modifica</button>
+                            <button class="btn-delete" data-action="delete" data-id="${drawing.id}">\u{1F5D1}\uFE0F Elimina</button>
                         </div>
-                        ` : '<span style="color: var(--text-secondary); font-size: 12px;">Solo lettura</span>'}
+                        ` : '<span style="color:var(--text-secondary);font-size:12px;">Solo lettura</span>'}
                     </td>
-                </tr>
-            `;
+                </tr>`;
         }).join('');
     }
 
-    isCommessa(drawing) {
-        // Considera una commessa se ha almeno un ordine materiali o ordine bulloneria
-        return !!(drawing.ordineMateriali || drawing.ordineBulloneria);
-    }
-
+    // --- Filtri ---
     applyFilters() {
-        const filterNumero = document.getElementById('filterNumero').value.toLowerCase();
-        const filterCliente = document.getElementById('filterCliente').value.toLowerCase();
-        const filterCantiere = document.getElementById('filterCantiere').value.toLowerCase();
-        const filterOggetto = document.getElementById('filterOggetto').value.toLowerCase();
+        const fNumero = this.dom.filterNumero.value.toLowerCase();
+        const fCliente = this.dom.filterCliente.value.toLowerCase();
+        const fCantiere = this.dom.filterCantiere.value.toLowerCase();
+        const fOggetto = this.dom.filterOggetto.value.toLowerCase();
 
-        const filtered = this.drawings.filter(drawing => {
-            const matchNumero = drawing.numeroDisegno.toLowerCase().includes(filterNumero);
-            const matchCliente = drawing.cliente.toLowerCase().includes(filterCliente);
-            const matchCantiere = (drawing.cantiere || '').toLowerCase().includes(filterCantiere);
-            const matchOggetto = (drawing.oggettoLavoro || '').toLowerCase().includes(filterOggetto);
-
-            return matchNumero && matchCliente && matchCantiere && matchOggetto;
+        const filtered = this.drawings.filter(d => {
+            return d.numeroDisegno.toLowerCase().includes(fNumero)
+                && (d.cliente || '').toLowerCase().includes(fCliente)
+                && (d.cantiere || '').toLowerCase().includes(fCantiere)
+                && (d.oggettoLavoro || '').toLowerCase().includes(fOggetto);
         });
 
         this.renderTable(filtered);
     }
 
+    // --- Esportazione ---
     async exportData() {
         if (this.drawings.length === 0) {
-            alert('Nessun dato da esportare.');
+            this.toast.warning('Nessun dato da esportare.');
             return;
         }
 
-        // Crea il contenuto JSON formattato
         const dataToExport = {
             exportDate: new Date().toISOString(),
-            version: '1.0',
+            version: '2.0',
             totalDrawings: this.drawings.length,
             drawings: this.drawings
         };
-
         const jsonString = JSON.stringify(dataToExport, null, 2);
-
-        // Crea nome file con data
         const today = new Date();
-        const dateStr = today.toISOString().split('T')[0]; // YYYY-MM-DD
+        const dateStr = today.toISOString().split('T')[0];
         const filename = `disegni_commesse_${dateStr}.json`;
 
-        // Prova a usare File System Access API (Chrome/Edge) per scegliere la cartella
         if ('showSaveFilePicker' in window) {
             try {
                 const handle = await window.showSaveFilePicker({
                     suggestedName: filename,
-                    types: [{
-                        description: 'File JSON',
-                        accept: { 'application/json': ['.json'] }
-                    }]
+                    types: [{ description: 'File JSON', accept: { 'application/json': ['.json'] } }]
                 });
-
                 const writable = await handle.createWritable();
                 await writable.write(jsonString);
                 await writable.close();
-
-                console.log(`📤 Esportati ${this.drawings.length} disegni`);
-                alert(`Esportati con successo ${this.drawings.length} disegni!`);
+                localStorage.setItem('lastExportDate', new Date().toISOString());
+                this.toast.success(`Esportati ${this.drawings.length} disegni!`);
                 return;
             } catch (err) {
-                // L'utente ha annullato o c'è stato un errore
-                if (err.name === 'AbortError') {
-                    return; // L'utente ha annullato, non mostrare errori
-                }
-                console.warn('File System Access API non disponibile, uso download tradizionale');
+                if (err.name === 'AbortError') return;
             }
         }
 
-        // Fallback: download tradizionale nella cartella Download
+        // Fallback download tradizionale
         const blob = new Blob([jsonString], { type: 'application/json' });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
@@ -843,18 +838,17 @@ class DrawingsManager {
         link.click();
         document.body.removeChild(link);
         URL.revokeObjectURL(link.href);
-
-        console.log(`📤 Esportati ${this.drawings.length} disegni in ${filename}`);
-        alert(`Esportati ${this.drawings.length} disegni!\n\nFile: ${filename}\n\nNota: Per scegliere la cartella, usa Chrome o Edge.`);
+        localStorage.setItem('lastExportDate', new Date().toISOString());
+        this.toast.success(`Esportati ${this.drawings.length} disegni in ${filename}`);
     }
 
+    // --- Importazione (con validazione) ---
     importData(event) {
         const file = event.target.files[0];
         if (!file) return;
 
-        // Verifica che sia un file JSON
         if (!file.name.endsWith('.json')) {
-            alert('Errore: Seleziona un file JSON valido.');
+            this.toast.error('Seleziona un file JSON valido.');
             event.target.value = '';
             return;
         }
@@ -863,29 +857,30 @@ class DrawingsManager {
         reader.onload = (e) => {
             try {
                 const importedData = JSON.parse(e.target.result);
-
-                // Verifica struttura del file
                 let drawingsToImport;
+
                 if (importedData.drawings && Array.isArray(importedData.drawings)) {
-                    // Nuovo formato con metadati
                     drawingsToImport = importedData.drawings;
                 } else if (Array.isArray(importedData)) {
-                    // Vecchio formato (array diretto)
                     drawingsToImport = importedData;
                 } else {
                     throw new Error('Formato file non valido');
                 }
 
-                // Chiedi conferma prima di sovrascrivere
+                // Validazione struttura dei disegni importati
+                const errors = this.validateImportedDrawings(drawingsToImport);
+                if (errors.length > 0) {
+                    this.toast.error(`Errori nell'importazione:\n${errors.join('\n')}`);
+                    event.target.value = '';
+                    return;
+                }
+
                 const currentCount = this.drawings.length;
                 const importCount = drawingsToImport.length;
-
                 let message = `Trovati ${importCount} disegni nel file.\n\n`;
                 if (currentCount > 0) {
-                    message += `Hai attualmente ${currentCount} disegni.\n\n`;
-                    message += 'Scegli come procedere:\n';
-                    message += '- OK = SOSTITUISCI tutti i dati attuali\n';
-                    message += '- Annulla = Non importare';
+                    message += `Hai attualmente ${currentCount} disegni.\n`;
+                    message += 'OK = SOSTITUISCI tutti i dati attuali\nAnnulla = Non importare';
                 } else {
                     message += 'Vuoi importare questi dati?';
                 }
@@ -894,28 +889,36 @@ class DrawingsManager {
                     this.drawings = drawingsToImport;
                     this.saveDrawings();
                     this.renderTable();
-                    alert(`Importati con successo ${importCount} disegni!`);
-                    console.log(`📥 Importati ${importCount} disegni`);
+                    this.toast.success(`Importati ${importCount} disegni!`);
                 }
             } catch (error) {
-                console.error('Errore importazione:', error);
-                alert('Errore: Il file non è un JSON valido o ha un formato errato.\n\nDettaglio: ' + error.message);
+                this.toast.error('Il file non e un JSON valido o ha un formato errato: ' + error.message);
             }
-
-            // Reset input file per permettere di reimportare lo stesso file
             event.target.value = '';
         };
 
         reader.onerror = () => {
-            alert('Errore nella lettura del file.');
+            this.toast.error('Errore nella lettura del file.');
             event.target.value = '';
         };
-
         reader.readAsText(file);
+    }
+
+    validateImportedDrawings(drawings) {
+        const errors = [];
+        drawings.forEach((d, i) => {
+            if (!d.id && d.id !== 0) errors.push(`Disegno ${i + 1}: manca campo "id"`);
+            if (!d.numeroDisegno) errors.push(`Disegno ${i + 1}: manca campo "numeroDisegno"`);
+        });
+        // Limita a 5 errori per non inondare l'utente
+        return errors.slice(0, 5);
     }
 }
 
-// Inizializza l'applicazione
+// Esponi sha256 per generare hash dalla console (utile per cambiare password)
+window.sha256 = sha256;
+
+// Inizializzazione
 let manager;
 document.addEventListener('DOMContentLoaded', () => {
     manager = new DrawingsManager();
