@@ -1,8 +1,20 @@
 // ============================================================
-// Gestione Disegni e Commesse - v2.0
+// Gestione Disegni e Commesse - v3.0
+// Sezioni multiple con descrizione
 // ============================================================
 
-// --- Utility: sanitizzazione HTML per prevenire XSS ---
+// Configurazione sezioni
+const SECTIONS = {
+    disegniOfficina: { label: 'Disegni Officina', addLabel: 'Disegno Officina', hasOrdine: false },
+    disegniCantiere: { label: 'Disegni Cantiere', addLabel: 'Disegno Cantiere', hasOrdine: false },
+    rdoMateriali: { label: 'RDO Materiali', addLabel: 'RDO Materiali', hasOrdine: true },
+    rdoBulloneria: { label: 'RDO Bulloneria', addLabel: 'RDO Bulloneria', hasOrdine: true },
+    dxfPiastre: { label: 'DXF Piastre', addLabel: 'DXF Piastre', hasOrdine: false }
+};
+
+const MAX_ENTRIES = 5;
+
+// --- Utility ---
 function escapeHtml(text) {
     if (text === null || text === undefined) return '';
     const str = String(text);
@@ -10,7 +22,6 @@ function escapeHtml(text) {
     return str.replace(/[&<>"']/g, ch => map[ch]);
 }
 
-// --- Utility: hash SHA-256 per password ---
 async function sha256(message) {
     const msgBuffer = new TextEncoder().encode(message);
     const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
@@ -18,12 +29,11 @@ async function sha256(message) {
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-// --- Sistema Toast (notifiche non bloccanti) ---
+// --- Toast ---
 class ToastManager {
     constructor() {
         this.container = document.getElementById('toastContainer');
     }
-
     show(message, type = 'info', duration = 3000) {
         const toast = document.createElement('div');
         toast.className = `toast toast-${type}`;
@@ -35,7 +45,6 @@ class ToastManager {
             setTimeout(() => toast.remove(), 300);
         }, duration);
     }
-
     success(msg) { this.show(msg, 'success'); }
     error(msg) { this.show(msg, 'error', 5000); }
     warning(msg) { this.show(msg, 'warning', 4000); }
@@ -48,13 +57,9 @@ class DrawingsManager {
         this.drawings = this.loadDrawings();
         this.currentEditId = null;
         this.toast = new ToastManager();
-
-        // Ordinamento tabella
         this.sortColumn = 'createdAt';
         this.sortDirection = 'desc';
 
-        // Password hash SHA-256 (per generare un nuovo hash: aprire la console e digitare sha256('nuovaPassword'))
-        // admin123, collab123, utente1, utente2, utente3
         this.users = {
             'admin': { hash: '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', role: 'admin', name: 'Amministratore' },
             'collaboratore': { hash: 'e3e4116aa49f779d0c96ae6eaa7a6b29da6fd0ef73d85b187471aeabc3b25428', role: 'collaboratore', name: 'Collaboratore' },
@@ -63,7 +68,6 @@ class DrawingsManager {
             'utente3': { hash: 'd7843fc12f2260537ce74087e09f296cab80c1b4b1e8c5eb2d1b6250b5f5ce51', role: 'visualizzatore', name: 'Utente 3' }
         };
 
-        // Cache dei riferimenti DOM
         this.dom = {
             tableBody: document.getElementById('tableBody'),
             modal: document.getElementById('modal'),
@@ -90,10 +94,63 @@ class DrawingsManager {
         this.checkBackupReminder();
     }
 
-    // --- Storage ---
+    // --- Storage e migrazione ---
     loadDrawings() {
         const stored = localStorage.getItem('drawings');
-        return stored ? JSON.parse(stored) : [];
+        if (!stored) return [];
+        const drawings = JSON.parse(stored);
+        return drawings.map(d => this.migrateDrawing(d));
+    }
+
+    migrateDrawing(d) {
+        // Se gia in formato array, non serve migrazione
+        if (Array.isArray(d.disegniOfficina)) return d;
+
+        const migrated = { ...d };
+
+        // Migra sezioni semplici
+        ['disegniOfficina', 'disegniCantiere', 'dxfPiastre'].forEach(key => {
+            const old = migrated[key];
+            if (old && (old.consegnato || old.data)) {
+                migrated[key] = [{ descrizione: '', consegnato: old.consegnato || '', data: old.data || '' }];
+            } else {
+                migrated[key] = [];
+            }
+        });
+
+        // Migra RDO Materiali (include ordine + arrivo)
+        const rmOld = migrated.rdoMateriali;
+        if ((rmOld && (rmOld.consegnato || rmOld.data)) || migrated.ordineMateriali || migrated.arrivoMateriale) {
+            migrated.rdoMateriali = [{
+                descrizione: '',
+                consegnato: rmOld?.consegnato || '',
+                data: rmOld?.data || '',
+                ordine: migrated.ordineMateriali || '',
+                arrivo: migrated.arrivoMateriale || ''
+            }];
+        } else {
+            migrated.rdoMateriali = [];
+        }
+        delete migrated.ordineMateriali;
+        delete migrated.arrivoMateriale;
+
+        // Migra RDO Bulloneria
+        const rbOld = migrated.rdoBulloneria;
+        if ((rbOld && (rbOld.consegnato || rbOld.data)) || migrated.ordineBulloneria || migrated.arrivoBulloneria) {
+            migrated.rdoBulloneria = [{
+                descrizione: '',
+                consegnato: rbOld?.consegnato || '',
+                data: rbOld?.data || '',
+                ordine: migrated.ordineBulloneria || '',
+                arrivo: migrated.arrivoBulloneria || ''
+            }];
+        } else {
+            migrated.rdoBulloneria = [];
+        }
+        delete migrated.ordineBulloneria;
+        delete migrated.arrivoBulloneria;
+
+        return migrated;
     }
 
     loadCurrentUser() {
@@ -119,7 +176,6 @@ class DrawingsManager {
         }
     }
 
-    // --- Promemoria backup ---
     checkBackupReminder() {
         const lastExport = localStorage.getItem('lastExportDate');
         if (!lastExport && this.drawings.length > 0) {
@@ -136,40 +192,28 @@ class DrawingsManager {
 
     // --- Event Listeners ---
     initializeEventListeners() {
-        // Nuovo disegno
         this.dom.addDrawingBtn.addEventListener('click', () => this.openModal());
-
-        // Annulla modal
         document.getElementById('cancelBtn').addEventListener('click', () => this.closeModal());
 
-        // Click fuori dal modal
         window.addEventListener('click', (e) => {
             if (e.target === this.dom.modal) this.closeModal();
             if (e.target === this.dom.adminModal) this.closeAdminModal();
         });
 
-        // Form submit
         this.dom.drawingForm.addEventListener('submit', (e) => {
             e.preventDefault();
             this.saveDrawing();
         });
 
-        // Login/Logout
         this.dom.toggleAdminBtn.addEventListener('click', () => {
-            if (this.currentUser) {
-                this.logout();
-            } else {
-                this.openAdminModal();
-            }
+            this.currentUser ? this.logout() : this.openAdminModal();
         });
 
-        // Admin form
         document.getElementById('adminForm').addEventListener('submit', (e) => {
             e.preventDefault();
             this.checkAdminPassword();
         });
 
-        // Chiudi admin modal
         document.querySelectorAll('.close-admin').forEach(btn => {
             btn.addEventListener('click', () => this.closeAdminModal());
         });
@@ -180,7 +224,6 @@ class DrawingsManager {
         this.dom.filterCantiere.addEventListener('input', () => this.applyFilters());
         this.dom.filterOggetto.addEventListener('input', () => this.applyFilters());
 
-        // Azzera filtri
         document.getElementById('clearFilters').addEventListener('click', () => {
             this.dom.filterNumero.value = '';
             this.dom.filterCliente.value = '';
@@ -189,12 +232,11 @@ class DrawingsManager {
             this.applyFilters();
         });
 
-        // Esporta/Importa
         this.dom.exportBtn.addEventListener('click', () => this.exportData());
         this.dom.importBtn.addEventListener('click', () => this.dom.importFile.click());
         this.dom.importFile.addEventListener('change', (e) => this.importData(e));
 
-        // Event delegation per pulsanti nella tabella (elimina inline onclick)
+        // Event delegation tabella
         this.dom.tableBody.addEventListener('click', (e) => {
             const btn = e.target.closest('[data-action]');
             if (!btn) return;
@@ -210,7 +252,7 @@ class DrawingsManager {
             }
         });
 
-        // Ordinamento colonne (click sugli header)
+        // Ordinamento colonne
         document.querySelectorAll('th[data-sort]').forEach(th => {
             th.addEventListener('click', () => {
                 const col = th.dataset.sort;
@@ -225,29 +267,46 @@ class DrawingsManager {
             });
         });
 
-        // Checkbox "Non Necessario" - disabilita campi corrispondenti
-        const naCheckboxes = [
-            { checkbox: 'disegniOfficinaNonNecessario', fields: ['disegniOfficinaConsegnato', 'disegniOfficinaData'] },
-            { checkbox: 'disegniCantiereNonNecessario', fields: ['disegniCantiereConsegnato', 'disegniCantiereData'] },
-            { checkbox: 'rdoMaterialiNonNecessario', fields: ['rdoMaterialiConsegnato', 'rdoMaterialiData', 'ordineMateriali', 'arrivoMateriale'] },
-            { checkbox: 'rdoBulloneriaNonNecessario', fields: ['rdoBulloneriaConsegnato', 'rdoBulloneriaData', 'ordineBulloneria', 'arrivoBulloneria'] },
-            { checkbox: 'dxfPiastreNonNecessario', fields: ['dxfPiastreConsegnato', 'dxfPiastreData'] }
-        ];
-        naCheckboxes.forEach(({ checkbox, fields }) => {
-            const cb = document.getElementById(checkbox);
+        // Event delegation form: aggiungi/rimuovi entry
+        this.dom.drawingForm.addEventListener('click', (e) => {
+            const addBtn = e.target.closest('.btn-add-entry');
+            if (addBtn) {
+                const section = addBtn.dataset.section;
+                this.addEntry(section);
+                return;
+            }
+            const removeBtn = e.target.closest('.btn-remove-entry');
+            if (removeBtn) {
+                const section = removeBtn.dataset.section;
+                const index = Number(removeBtn.dataset.index);
+                this.removeEntry(section, index);
+                return;
+            }
+        });
+
+        // Checkbox "Non Necessario"
+        Object.keys(SECTIONS).forEach(key => {
+            const cb = document.getElementById(`${key}NonNecessario`);
             if (cb) {
                 cb.addEventListener('change', () => {
-                    fields.forEach(fieldId => {
-                        const field = document.getElementById(fieldId);
-                        if (field) {
-                            field.disabled = cb.checked;
-                            field.style.opacity = cb.checked ? '0.4' : '';
-                            if (cb.checked) field.value = '';
-                        }
-                    });
+                    this.toggleSectionDisabled(key, cb.checked);
                 });
             }
         });
+    }
+
+    toggleSectionDisabled(sectionKey, disabled) {
+        const container = document.getElementById(`${sectionKey}Entries`);
+        const addBtn = document.getElementById(`${sectionKey}AddBtn`);
+        if (container) {
+            container.style.opacity = disabled ? '0.3' : '';
+            container.style.pointerEvents = disabled ? 'none' : '';
+            container.querySelectorAll('input').forEach(inp => inp.disabled = disabled);
+        }
+        if (addBtn) {
+            addBtn.disabled = disabled;
+            addBtn.style.opacity = disabled ? '0.3' : '';
+        }
     }
 
     updateSortIndicators() {
@@ -274,9 +333,7 @@ class DrawingsManager {
     async checkAdminPassword() {
         const password = this.dom.adminPassword.value;
         const passwordHash = await sha256(password);
-
-        let foundUser = null;
-        let foundUsername = null;
+        let foundUser = null, foundUsername = null;
 
         for (const [username, userData] of Object.entries(this.users)) {
             if (userData.hash === passwordHash) {
@@ -287,11 +344,7 @@ class DrawingsManager {
         }
 
         if (foundUser) {
-            this.currentUser = {
-                username: foundUsername,
-                role: foundUser.role,
-                name: foundUser.name
-            };
+            this.currentUser = { username: foundUsername, role: foundUser.role, name: foundUser.name };
             this.saveCurrentUser();
             this.updateUserInterface();
             this.renderTable();
@@ -305,11 +358,7 @@ class DrawingsManager {
     }
 
     getRoleDisplayName(role) {
-        const names = {
-            'admin': 'Amministratore',
-            'collaboratore': 'Collaboratore',
-            'visualizzatore': 'Visualizzatore (solo lettura)'
-        };
+        const names = { 'admin': 'Amministratore', 'collaboratore': 'Collaboratore', 'visualizzatore': 'Visualizzatore (solo lettura)' };
         return names[role] || role;
     }
 
@@ -350,14 +399,12 @@ class DrawingsManager {
         }
     }
 
-    // --- Modal disegno ---
+    // --- Modal e form dinamico ---
     openModal(drawing = null) {
         if (!this.canEdit()) {
-            if (this.isViewer()) {
-                this.toast.warning('Sei un visualizzatore. Puoi solo vedere i dati, non modificarli.');
-            } else {
-                this.toast.warning('Devi effettuare il login per modificare i dati.');
-            }
+            this.toast.warning(this.isViewer()
+                ? 'Sei un visualizzatore. Puoi solo vedere i dati, non modificarli.'
+                : 'Devi effettuare il login per modificare i dati.');
             return;
         }
 
@@ -371,11 +418,16 @@ class DrawingsManager {
             this.dom.drawingForm.reset();
             this.suggestNextNumber();
             this.setTodayDate();
+            // Inizializza sezioni con 1 entry vuota
+            Object.keys(SECTIONS).forEach(key => {
+                this.renderSectionEntries(key, [{}]);
+                const cb = document.getElementById(`${key}NonNecessario`);
+                if (cb) this.toggleSectionDisabled(key, cb.checked);
+            });
         }
 
         this.populateAutocomplete();
         this.dom.modal.style.display = 'block';
-        this.syncNonNecessarioFields();
     }
 
     closeModal() {
@@ -384,26 +436,123 @@ class DrawingsManager {
         this.currentEditId = null;
     }
 
-    syncNonNecessarioFields() {
-        // Sincronizza lo stato disabilitato dei campi in base ai checkbox "Non Necessario"
-        const mappings = [
-            { checkbox: 'disegniOfficinaNonNecessario', fields: ['disegniOfficinaConsegnato', 'disegniOfficinaData'] },
-            { checkbox: 'disegniCantiereNonNecessario', fields: ['disegniCantiereConsegnato', 'disegniCantiereData'] },
-            { checkbox: 'rdoMaterialiNonNecessario', fields: ['rdoMaterialiConsegnato', 'rdoMaterialiData', 'ordineMateriali', 'arrivoMateriale'] },
-            { checkbox: 'rdoBulloneriaNonNecessario', fields: ['rdoBulloneriaConsegnato', 'rdoBulloneriaData', 'ordineBulloneria', 'arrivoBulloneria'] },
-            { checkbox: 'dxfPiastreNonNecessario', fields: ['dxfPiastreConsegnato', 'dxfPiastreData'] }
-        ];
-        mappings.forEach(({ checkbox, fields }) => {
-            const cb = document.getElementById(checkbox);
-            if (cb) {
-                fields.forEach(fieldId => {
-                    const field = document.getElementById(fieldId);
-                    if (field) {
-                        field.disabled = cb.checked;
-                        field.style.opacity = cb.checked ? '0.4' : '';
-                    }
-                });
+    // --- Gestione entries dinamiche ---
+    renderSectionEntries(sectionKey, entries) {
+        const container = document.getElementById(`${sectionKey}Entries`);
+        const addBtn = document.getElementById(`${sectionKey}AddBtn`);
+        if (!container) return;
+
+        const config = SECTIONS[sectionKey];
+        const data = entries || [];
+
+        container.innerHTML = data.map((entry, i) => this.renderEntryHtml(sectionKey, i, entry)).join('');
+
+        // Aggiorna stato pulsante aggiungi
+        if (addBtn) {
+            const atMax = data.length >= MAX_ENTRIES;
+            addBtn.disabled = atMax;
+            addBtn.textContent = atMax
+                ? `Massimo ${MAX_ENTRIES} voci raggiunte`
+                : `+ Aggiungi ${config.addLabel}`;
+        }
+    }
+
+    renderEntryHtml(sectionKey, index, data = {}) {
+        const config = SECTIONS[sectionKey];
+        let html = `<div class="entry-block" data-section="${sectionKey}" data-index="${index}">`;
+        html += `<div class="entry-header">`;
+        html += `<span class="entry-label">#${index + 1}</span>`;
+        html += `<button type="button" class="btn-remove-entry" data-section="${sectionKey}" data-index="${index}" title="Rimuovi">\u2715 Rimuovi</button>`;
+        html += `</div>`;
+        html += `<div class="form-grid">`;
+
+        // Descrizione (full width)
+        html += `<div class="form-group full-width">`;
+        html += `<label>Descrizione</label>`;
+        html += `<input type="text" data-field="descrizione" value="${escapeHtml(data.descrizione || '')}" placeholder="Es: Profili HEA 200, Lamiere S355...">`;
+        html += `</div>`;
+
+        // Consegnato a
+        html += `<div class="form-group">`;
+        html += `<label>Consegnato a</label>`;
+        html += `<input type="text" data-field="consegnato" value="${escapeHtml(data.consegnato || '')}" list="consegnatoList">`;
+        html += `</div>`;
+
+        // Data
+        html += `<div class="form-group">`;
+        html += `<label>Data</label>`;
+        html += `<input type="date" data-field="data" value="${data.data || ''}">`;
+        html += `</div>`;
+
+        if (config.hasOrdine) {
+            // Ordine
+            html += `<div class="form-group">`;
+            html += `<label>Ordine</label>`;
+            html += `<input type="text" data-field="ordine" value="${escapeHtml(data.ordine || '')}">`;
+            html += `</div>`;
+
+            // Arrivo
+            html += `<div class="form-group">`;
+            html += `<label>Arrivo</label>`;
+            html += `<input type="date" data-field="arrivo" value="${data.arrivo || ''}">`;
+            html += `</div>`;
+        }
+
+        html += `</div></div>`;
+        return html;
+    }
+
+    addEntry(sectionKey) {
+        const currentEntries = this.collectSectionData(sectionKey);
+        if (currentEntries.length >= MAX_ENTRIES) {
+            this.toast.warning(`Massimo ${MAX_ENTRIES} voci per sezione.`);
+            return;
+        }
+        currentEntries.push({});
+        this.renderSectionEntries(sectionKey, currentEntries);
+
+        // Rispetta stato "Non Necessario"
+        const cb = document.getElementById(`${sectionKey}NonNecessario`);
+        if (cb && cb.checked) this.toggleSectionDisabled(sectionKey, true);
+    }
+
+    removeEntry(sectionKey, index) {
+        const currentEntries = this.collectSectionData(sectionKey);
+        currentEntries.splice(index, 1);
+        this.renderSectionEntries(sectionKey, currentEntries.length > 0 ? currentEntries : [{}]);
+
+        const cb = document.getElementById(`${sectionKey}NonNecessario`);
+        if (cb && cb.checked) this.toggleSectionDisabled(sectionKey, true);
+    }
+
+    collectSectionData(sectionKey) {
+        const container = document.getElementById(`${sectionKey}Entries`);
+        if (!container) return [];
+        const config = SECTIONS[sectionKey];
+        const entries = container.querySelectorAll('.entry-block');
+        const data = [];
+
+        entries.forEach(entry => {
+            const item = {
+                descrizione: entry.querySelector('[data-field="descrizione"]')?.value || '',
+                consegnato: entry.querySelector('[data-field="consegnato"]')?.value || '',
+                data: entry.querySelector('[data-field="data"]')?.value || ''
+            };
+            if (config.hasOrdine) {
+                item.ordine = entry.querySelector('[data-field="ordine"]')?.value || '';
+                item.arrivo = entry.querySelector('[data-field="arrivo"]')?.value || '';
             }
+            data.push(item);
+        });
+
+        return data;
+    }
+
+    // Filtra entry vuote prima di salvare
+    filterEmptyEntries(entries, hasOrdine) {
+        return entries.filter(e => {
+            return e.descrizione || e.consegnato || e.data ||
+                (hasOrdine && (e.ordine || e.arrivo));
         });
     }
 
@@ -414,8 +563,12 @@ class DrawingsManager {
 
         const consegnati = new Set();
         this.drawings.forEach(d => {
-            ['disegniOfficina', 'disegniCantiere', 'rdoMateriali', 'rdoBulloneria', 'dxfPiastre'].forEach(key => {
-                if (d[key]?.consegnato?.trim()) consegnati.add(d[key].consegnato.trim());
+            Object.keys(SECTIONS).forEach(key => {
+                if (Array.isArray(d[key])) {
+                    d[key].forEach(entry => {
+                        if (entry.consegnato?.trim()) consegnati.add(entry.consegnato.trim());
+                    });
+                }
             });
         });
 
@@ -431,11 +584,10 @@ class DrawingsManager {
         }
     }
 
-    // --- Numerazione automatica ---
+    // --- Numerazione ---
     suggestNextNumber() {
         const currentYear = new Date().getFullYear();
         const drawingsThisYear = this.drawings.filter(d => d.numeroDisegno.includes(`/${currentYear}`));
-
         if (drawingsThisYear.length > 0) {
             const numbers = drawingsThisYear.map(d => {
                 const match = d.numeroDisegno.match(/^(\d+)\//);
@@ -462,35 +614,21 @@ class DrawingsManager {
         document.getElementById('cliente').value = drawing.cliente || '';
         document.getElementById('cantiere').value = drawing.cantiere || '';
         document.getElementById('oggettoLavoro').value = drawing.oggettoLavoro || '';
-
-        document.getElementById('disegniOfficinaConsegnato').value = drawing.disegniOfficina?.consegnato || '';
-        document.getElementById('disegniOfficinaData').value = drawing.disegniOfficina?.data || '';
-        document.getElementById('disegniOfficinaNonNecessario').checked = drawing.disegniOfficinaNonNecessario || false;
-
-        document.getElementById('disegniCantiereConsegnato').value = drawing.disegniCantiere?.consegnato || '';
-        document.getElementById('disegniCantiereData').value = drawing.disegniCantiere?.data || '';
-        document.getElementById('disegniCantiereNonNecessario').checked = drawing.disegniCantiereNonNecessario || false;
-
-        document.getElementById('rdoMaterialiConsegnato').value = drawing.rdoMateriali?.consegnato || '';
-        document.getElementById('rdoMaterialiData').value = drawing.rdoMateriali?.data || '';
-        document.getElementById('ordineMateriali').value = drawing.ordineMateriali || '';
-        document.getElementById('arrivoMateriale').value = drawing.arrivoMateriale || '';
-        document.getElementById('rdoMaterialiNonNecessario').checked = drawing.rdoMaterialiNonNecessario || false;
-
-        document.getElementById('rdoBulloneriaConsegnato').value = drawing.rdoBulloneria?.consegnato || '';
-        document.getElementById('rdoBulloneriaData').value = drawing.rdoBulloneria?.data || '';
-        document.getElementById('ordineBulloneria').value = drawing.ordineBulloneria || '';
-        document.getElementById('arrivoBulloneria').value = drawing.arrivoBulloneria || '';
-        document.getElementById('rdoBulloneriaNonNecessario').checked = drawing.rdoBulloneriaNonNecessario || false;
-
-        document.getElementById('dxfPiastreConsegnato').value = drawing.dxfPiastre?.consegnato || '';
-        document.getElementById('dxfPiastreData').value = drawing.dxfPiastre?.data || '';
-        document.getElementById('dxfPiastreNonNecessario').checked = drawing.dxfPiastreNonNecessario || false;
-
         document.getElementById('note').value = drawing.note || '';
+
+        // Popola sezioni dinamiche
+        Object.keys(SECTIONS).forEach(key => {
+            const entries = Array.isArray(drawing[key]) ? drawing[key] : [];
+            const naCheckbox = document.getElementById(`${key}NonNecessario`);
+            const isNa = drawing[`${key}NonNecessario`] || false;
+
+            if (naCheckbox) naCheckbox.checked = isNa;
+            this.renderSectionEntries(key, entries.length > 0 ? entries : [{}]);
+            this.toggleSectionDisabled(key, isNa);
+        });
     }
 
-    // --- Salvataggio disegno (con controllo duplicati) ---
+    // --- Salvataggio ---
     saveDrawing() {
         const numeroDisegno = document.getElementById('numeroDisegno').value.trim();
 
@@ -510,35 +648,6 @@ class DrawingsManager {
             cliente: document.getElementById('cliente').value,
             cantiere: document.getElementById('cantiere').value,
             oggettoLavoro: document.getElementById('oggettoLavoro').value,
-            disegniOfficina: {
-                consegnato: document.getElementById('disegniOfficinaConsegnato').value,
-                data: document.getElementById('disegniOfficinaData').value
-            },
-            disegniOfficinaNonNecessario: document.getElementById('disegniOfficinaNonNecessario').checked,
-            disegniCantiere: {
-                consegnato: document.getElementById('disegniCantiereConsegnato').value,
-                data: document.getElementById('disegniCantiereData').value
-            },
-            disegniCantiereNonNecessario: document.getElementById('disegniCantiereNonNecessario').checked,
-            rdoMateriali: {
-                consegnato: document.getElementById('rdoMaterialiConsegnato').value,
-                data: document.getElementById('rdoMaterialiData').value
-            },
-            rdoMaterialiNonNecessario: document.getElementById('rdoMaterialiNonNecessario').checked,
-            ordineMateriali: document.getElementById('ordineMateriali').value,
-            arrivoMateriale: document.getElementById('arrivoMateriale').value,
-            rdoBulloneria: {
-                consegnato: document.getElementById('rdoBulloneriaConsegnato').value,
-                data: document.getElementById('rdoBulloneriaData').value
-            },
-            rdoBulloneriaNonNecessario: document.getElementById('rdoBulloneriaNonNecessario').checked,
-            ordineBulloneria: document.getElementById('ordineBulloneria').value,
-            arrivoBulloneria: document.getElementById('arrivoBulloneria').value,
-            dxfPiastre: {
-                consegnato: document.getElementById('dxfPiastreConsegnato').value,
-                data: document.getElementById('dxfPiastreData').value
-            },
-            dxfPiastreNonNecessario: document.getElementById('dxfPiastreNonNecessario').checked,
             note: document.getElementById('note').value,
             stato: this.currentEditId ?
                 this.drawings.find(d => d.id === this.currentEditId)?.stato || 'preventivo' :
@@ -547,6 +656,14 @@ class DrawingsManager {
                 this.drawings.find(d => d.id === this.currentEditId)?.createdAt || Date.now() :
                 Date.now()
         };
+
+        // Raccogli dati sezioni
+        Object.keys(SECTIONS).forEach(key => {
+            const config = SECTIONS[key];
+            const raw = this.collectSectionData(key);
+            drawingData[key] = this.filterEmptyEntries(raw, config.hasOrdine);
+            drawingData[`${key}NonNecessario`] = document.getElementById(`${key}NonNecessario`)?.checked || false;
+        });
 
         if (this.currentEditId) {
             const index = this.drawings.findIndex(d => d.id === this.currentEditId);
@@ -562,7 +679,6 @@ class DrawingsManager {
         this.closeModal();
     }
 
-    // --- Eliminazione ---
     deleteDrawing(id) {
         const drawing = this.drawings.find(d => d.id === id);
         const numero = drawing ? drawing.numeroDisegno : '';
@@ -574,7 +690,6 @@ class DrawingsManager {
         }
     }
 
-    // --- Toggle stato ---
     toggleCommessa(id) {
         const drawing = this.drawings.find(d => d.id === id);
         if (drawing) {
@@ -585,66 +700,95 @@ class DrawingsManager {
         }
     }
 
-    // --- Formattazione celle (unificata, con XSS protection) ---
-    formatCellData(data, isRequired, isPreventivo, isNonNecessario) {
+    // --- Formattazione celle multi-entry ---
+    formatMultiEntryCell(entries, isRequired, isPreventivo, isNonNecessario, hasOrdine) {
         if (isPreventivo) return '<div class="cell-preventivo">\u{1F4CB} PREVENTIVO</div>';
         if (isNonNecessario) return '<div class="cell-na-text">N/A</div>';
 
-        if (!data || (!data.consegnato && !data.data)) {
-            return isRequired ? '<div class="cell-empty">\u26A0\uFE0F NON CONSEGNATO</div>' : '<div class="cell-empty">-</div>';
+        if (!entries || entries.length === 0) {
+            return isRequired ? '<div class="cell-empty">\u26A0\uFE0F VUOTO</div>' : '<div class="cell-empty">-</div>';
         }
 
-        const hasConsegnato = data.consegnato && data.consegnato.trim() !== '';
-        const hasData = data.data && data.data.trim() !== '';
+        return entries.map((entry, i) => {
+            let html = '<div class="entry-cell">';
 
-        if (hasConsegnato && !hasData) {
-            return `<div class="cell-data cell-partial"><div><strong>A:</strong> ${escapeHtml(data.consegnato)}</div><div class="cell-warning">\u26A0\uFE0F MANCA DATA CONSEGNA</div></div>`;
-        }
-        if (!hasConsegnato && hasData) {
-            return `<div class="cell-data cell-partial"><div><strong>Data:</strong> ${this.formatDate(data.data)}</div><div class="cell-warning">\u26A0\uFE0F MANCA DESTINATARIO</div></div>`;
-        }
+            // Numero se multipli
+            if (entries.length > 1) {
+                html += `<div class="entry-cell-number">#${i + 1}</div>`;
+            }
 
-        return `<div class="cell-data"><div><strong>A:</strong> ${escapeHtml(data.consegnato)}</div><div><strong>Data:</strong> ${this.formatDate(data.data)}</div></div>`;
+            // Descrizione
+            if (entry.descrizione) {
+                html += `<div class="entry-cell-desc">${escapeHtml(entry.descrizione)}</div>`;
+            }
+
+            // Consegnato e data
+            const hasC = entry.consegnato?.trim();
+            const hasD = entry.data?.trim();
+
+            if (hasC && hasD) {
+                html += `<div class="entry-cell-info"><strong>A:</strong> ${escapeHtml(entry.consegnato)} <strong>|</strong> ${this.formatDate(entry.data)}</div>`;
+            } else if (hasC) {
+                html += `<div class="entry-cell-info"><strong>A:</strong> ${escapeHtml(entry.consegnato)}</div>`;
+                html += `<div class="cell-warning">\u26A0\uFE0F Manca data</div>`;
+            } else if (hasD) {
+                html += `<div class="entry-cell-info"><strong>Data:</strong> ${this.formatDate(entry.data)}</div>`;
+                html += `<div class="cell-warning">\u26A0\uFE0F Manca destinatario</div>`;
+            } else {
+                html += `<div class="cell-warning">\u26A0\uFE0F Non compilato</div>`;
+            }
+
+            // Ordine e arrivo (solo per RDO)
+            if (hasOrdine) {
+                const hasO = entry.ordine?.trim();
+                const hasA = entry.arrivo?.trim();
+                if (hasO || hasA) {
+                    html += '<div class="entry-cell-ordine">';
+                    if (hasO) html += `<span><strong>Ord:</strong> ${escapeHtml(entry.ordine)}</span>`;
+                    if (hasO && hasA) html += ' | ';
+                    if (hasA) html += `<span><strong>Arr:</strong> ${this.formatDate(entry.arrivo)}</span>`;
+                    html += '</div>';
+                } else if (isRequired) {
+                    html += `<div class="cell-warning">\u26A0\uFE0F Manca ordine/arrivo</div>`;
+                }
+            }
+
+            html += '</div>';
+            return html;
+        }).join('');
     }
 
-    getCellClass(data, isRequired, isPreventivo, isNonNecessario) {
+    getMultiEntryCellClass(entries, isRequired, isPreventivo, isNonNecessario, hasOrdine) {
         if (isPreventivo) return 'cell-preventivo-bg';
         if (isNonNecessario) return 'cell-na';
-        if (!data || (!data.consegnato && !data.data)) return isRequired ? 'cell-incomplete' : '';
+        if (!entries || entries.length === 0) return isRequired ? 'cell-incomplete' : '';
 
-        const hasConsegnato = data.consegnato && data.consegnato.trim() !== '';
-        const hasData = data.data && data.data.trim() !== '';
-        if ((hasConsegnato && !hasData) || (!hasConsegnato && hasData)) return 'cell-partial';
-        return 'cell-complete';
-    }
+        let allComplete = true;
+        let anyData = false;
 
-    // Unificata: formatta un campo semplice (con supporto N/A)
-    formatSimpleField(value, isRequired, isPreventivo, isNonNecessario) {
-        if (isNonNecessario) return '<div class="cell-na-text">N/A</div>';
-        if (isPreventivo) return escapeHtml(value) || '-';
-        if (isRequired && (!value || value.trim() === '')) return '<div class="cell-empty">\u26A0\uFE0F NON INSERITO</div>';
-        return escapeHtml(value) || '-';
-    }
+        entries.forEach(entry => {
+            const hasC = entry.consegnato?.trim();
+            const hasD = entry.data?.trim();
+            anyData = anyData || hasC || hasD;
 
-    getSimpleFieldClass(value, isRequired, isPreventivo, isNonNecessario) {
-        if (isNonNecessario) return 'cell-na';
-        if (isPreventivo) return '';
-        if (isRequired) return (!value || value.trim() === '') ? 'cell-incomplete' : 'cell-complete';
-        return '';
+            if (!hasC || !hasD) allComplete = false;
+
+            if (hasOrdine) {
+                const hasO = entry.ordine?.trim();
+                const hasA = entry.arrivo?.trim();
+                anyData = anyData || hasO || hasA;
+                if (!hasO || !hasA) allComplete = false;
+            }
+        });
+
+        if (allComplete) return 'cell-complete';
+        if (anyData) return 'cell-partial';
+        return isRequired ? 'cell-incomplete' : '';
     }
 
     formatDate(dateString) {
         if (!dateString) return '-';
-        const date = new Date(dateString);
-        return date.toLocaleDateString('it-IT');
-    }
-
-    formatDateField(value, isRequired, isPreventivo, isNonNecessario) {
-        if (isNonNecessario) return '<div class="cell-na-text">N/A</div>';
-        if (!isPreventivo && isRequired && (!value || value.trim() === '')) {
-            return '<div class="cell-empty">\u26A0\uFE0F NON INSERITO</div>';
-        }
-        return this.formatDate(value);
+        return new Date(dateString).toLocaleDateString('it-IT');
     }
 
     formatNotes(note) {
@@ -661,30 +805,17 @@ class DrawingsManager {
             let valA, valB;
             switch (this.sortColumn) {
                 case 'numeroDisegno':
-                    valA = a.numeroDisegno.toLowerCase();
-                    valB = b.numeroDisegno.toLowerCase();
-                    break;
+                    valA = a.numeroDisegno.toLowerCase(); valB = b.numeroDisegno.toLowerCase(); break;
                 case 'cliente':
-                    valA = (a.cliente || '').toLowerCase();
-                    valB = (b.cliente || '').toLowerCase();
-                    break;
+                    valA = (a.cliente || '').toLowerCase(); valB = (b.cliente || '').toLowerCase(); break;
                 case 'cantiere':
-                    valA = (a.cantiere || '').toLowerCase();
-                    valB = (b.cantiere || '').toLowerCase();
-                    break;
+                    valA = (a.cantiere || '').toLowerCase(); valB = (b.cantiere || '').toLowerCase(); break;
                 case 'oggettoLavoro':
-                    valA = (a.oggettoLavoro || '').toLowerCase();
-                    valB = (b.oggettoLavoro || '').toLowerCase();
-                    break;
+                    valA = (a.oggettoLavoro || '').toLowerCase(); valB = (b.oggettoLavoro || '').toLowerCase(); break;
                 case 'stato':
-                    valA = a.stato || '';
-                    valB = b.stato || '';
-                    break;
-                case 'createdAt':
-                default:
-                    valA = a.createdAt || 0;
-                    valB = b.createdAt || 0;
-                    break;
+                    valA = a.stato || ''; valB = b.stato || ''; break;
+                case 'createdAt': default:
+                    valA = a.createdAt || 0; valB = b.createdAt || 0; break;
             }
             if (valA < valB) return this.sortDirection === 'asc' ? -1 : 1;
             if (valA > valB) return this.sortDirection === 'asc' ? 1 : -1;
@@ -693,12 +824,11 @@ class DrawingsManager {
         return sorted;
     }
 
-    // --- Rendering tabella (con event delegation, XSS safe) ---
+    // --- Rendering tabella ---
     renderTable(filteredDrawings = null) {
         const drawingsToRender = filteredDrawings || this.drawings;
         const sortedDrawings = this.sortDrawings(drawingsToRender);
 
-        // Conteggio disegni
         const countEl = document.getElementById('drawingsCount');
         if (countEl) {
             countEl.textContent = `${sortedDrawings.length} disegn${sortedDrawings.length === 1 ? 'o' : 'i'}`;
@@ -706,7 +836,7 @@ class DrawingsManager {
 
         if (sortedDrawings.length === 0) {
             this.dom.tableBody.innerHTML = `
-                <tr><td colspan="15" style="text-align:center;padding:40px;color:var(--text-secondary);">
+                <tr><td colspan="11" style="text-align:center;padding:40px;color:var(--text-secondary);">
                     Nessun disegno presente. Clicca su "+ Nuovo Disegno" per iniziare.
                 </td></tr>`;
             return;
@@ -714,12 +844,18 @@ class DrawingsManager {
 
         this.dom.tableBody.innerHTML = sortedDrawings.map(drawing => {
             const isP = drawing.stato === 'preventivo';
-            const oNa = drawing.disegniOfficinaNonNecessario || false;
-            const cNa = drawing.disegniCantiereNonNecessario || false;
-            const mNa = drawing.rdoMaterialiNonNecessario || false;
-            const bNa = drawing.rdoBulloneriaNonNecessario || false;
-            const dNa = drawing.dxfPiastreNonNecessario || false;
             const notesData = this.formatNotes(drawing.note);
+
+            // Genera celle per ogni sezione
+            const sectionCells = Object.keys(SECTIONS).map(key => {
+                const config = SECTIONS[key];
+                const entries = Array.isArray(drawing[key]) ? drawing[key] : [];
+                const isNa = drawing[`${key}NonNecessario`] || false;
+                const isRequired = !isP;
+                const cls = this.getMultiEntryCellClass(entries, isRequired, isP, isNa, config.hasOrdine);
+                const content = this.formatMultiEntryCell(entries, isRequired, isP, isNa, config.hasOrdine);
+                return `<td class="${cls}">${content}</td>`;
+            }).join('');
 
             return `
                 <tr class="${isP ? 'row-preventivo' : ''}">
@@ -730,33 +866,7 @@ class DrawingsManager {
                     <td>${escapeHtml(drawing.cliente) || '-'}</td>
                     <td>${escapeHtml(drawing.cantiere) || '-'}</td>
                     <td>${escapeHtml(drawing.oggettoLavoro) || '-'}</td>
-                    <td class="${this.getCellClass(drawing.disegniOfficina, true, isP, oNa)}">
-                        ${this.formatCellData(drawing.disegniOfficina, true, isP, oNa)}
-                    </td>
-                    <td class="${this.getCellClass(drawing.disegniCantiere, true, isP, cNa)}">
-                        ${this.formatCellData(drawing.disegniCantiere, true, isP, cNa)}
-                    </td>
-                    <td class="${this.getCellClass(drawing.rdoMateriali, true, isP, mNa)}">
-                        ${this.formatCellData(drawing.rdoMateriali, true, isP, mNa)}
-                    </td>
-                    <td class="${this.getSimpleFieldClass(drawing.ordineMateriali, !isP, isP, mNa)}">
-                        ${this.formatSimpleField(drawing.ordineMateriali, !isP, isP, mNa)}
-                    </td>
-                    <td class="${this.getSimpleFieldClass(drawing.arrivoMateriale, !isP, isP, mNa)}">
-                        ${this.formatDateField(drawing.arrivoMateriale, !isP, isP, mNa)}
-                    </td>
-                    <td class="${this.getCellClass(drawing.rdoBulloneria, true, isP, bNa)}">
-                        ${this.formatCellData(drawing.rdoBulloneria, true, isP, bNa)}
-                    </td>
-                    <td class="${this.getSimpleFieldClass(drawing.ordineBulloneria, !isP, isP, bNa)}">
-                        ${this.formatSimpleField(drawing.ordineBulloneria, !isP, isP, bNa)}
-                    </td>
-                    <td class="${this.getSimpleFieldClass(drawing.arrivoBulloneria, !isP, isP, bNa)}">
-                        ${this.formatDateField(drawing.arrivoBulloneria, !isP, isP, bNa)}
-                    </td>
-                    <td class="${this.getCellClass(drawing.dxfPiastre, !isP, isP, dNa)}">
-                        ${this.formatCellData(drawing.dxfPiastre, !isP, isP, dNa)}
-                    </td>
+                    ${sectionCells}
                     <td class="${notesData.hasNotes ? 'cell-notes-pending' : 'cell-notes-complete'}">
                         ${notesData.html}
                     </td>
@@ -790,11 +900,10 @@ class DrawingsManager {
                 && (d.cantiere || '').toLowerCase().includes(fCantiere)
                 && (d.oggettoLavoro || '').toLowerCase().includes(fOggetto);
         });
-
         this.renderTable(filtered);
     }
 
-    // --- Esportazione ---
+    // --- Export/Import ---
     async exportData() {
         if (this.drawings.length === 0) {
             this.toast.warning('Nessun dato da esportare.');
@@ -803,13 +912,12 @@ class DrawingsManager {
 
         const dataToExport = {
             exportDate: new Date().toISOString(),
-            version: '2.0',
+            version: '3.0',
             totalDrawings: this.drawings.length,
             drawings: this.drawings
         };
         const jsonString = JSON.stringify(dataToExport, null, 2);
-        const today = new Date();
-        const dateStr = today.toISOString().split('T')[0];
+        const dateStr = new Date().toISOString().split('T')[0];
         const filename = `disegni_commesse_${dateStr}.json`;
 
         if ('showSaveFilePicker' in window) {
@@ -829,7 +937,6 @@ class DrawingsManager {
             }
         }
 
-        // Fallback download tradizionale
         const blob = new Blob([jsonString], { type: 'application/json' });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
@@ -842,7 +949,6 @@ class DrawingsManager {
         this.toast.success(`Esportati ${this.drawings.length} disegni in ${filename}`);
     }
 
-    // --- Importazione (con validazione) ---
     importData(event) {
         const file = event.target.files[0];
         if (!file) return;
@@ -867,13 +973,15 @@ class DrawingsManager {
                     throw new Error('Formato file non valido');
                 }
 
-                // Validazione struttura dei disegni importati
                 const errors = this.validateImportedDrawings(drawingsToImport);
                 if (errors.length > 0) {
-                    this.toast.error(`Errori nell'importazione:\n${errors.join('\n')}`);
+                    this.toast.error(`Errori: ${errors.join(', ')}`);
                     event.target.value = '';
                     return;
                 }
+
+                // Migra tutti i disegni importati (retrocompatibilita)
+                drawingsToImport = drawingsToImport.map(d => this.migrateDrawing(d));
 
                 const currentCount = this.drawings.length;
                 const importCount = drawingsToImport.length;
@@ -892,7 +1000,7 @@ class DrawingsManager {
                     this.toast.success(`Importati ${importCount} disegni!`);
                 }
             } catch (error) {
-                this.toast.error('Il file non e un JSON valido o ha un formato errato: ' + error.message);
+                this.toast.error('Il file non e un JSON valido: ' + error.message);
             }
             event.target.value = '';
         };
@@ -907,18 +1015,15 @@ class DrawingsManager {
     validateImportedDrawings(drawings) {
         const errors = [];
         drawings.forEach((d, i) => {
-            if (!d.id && d.id !== 0) errors.push(`Disegno ${i + 1}: manca campo "id"`);
-            if (!d.numeroDisegno) errors.push(`Disegno ${i + 1}: manca campo "numeroDisegno"`);
+            if (!d.id && d.id !== 0) errors.push(`Disegno ${i + 1}: manca "id"`);
+            if (!d.numeroDisegno) errors.push(`Disegno ${i + 1}: manca "numeroDisegno"`);
         });
-        // Limita a 5 errori per non inondare l'utente
         return errors.slice(0, 5);
     }
 }
 
-// Esponi sha256 per generare hash dalla console (utile per cambiare password)
 window.sha256 = sha256;
 
-// Inizializzazione
 let manager;
 document.addEventListener('DOMContentLoaded', () => {
     manager = new DrawingsManager();
