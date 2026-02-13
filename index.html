@@ -7,6 +7,13 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Datalist globali per autocomplete -->
+    <datalist id="clientiList"></datalist>
+    <datalist id="cantieriList"></datalist>
+    <datalist id="consegnatoList"></datalist>
+
     <div class="container">
         <header>
             <h1>📐 Gestione Disegni e Commesse</h1>
@@ -25,7 +32,10 @@
         </header>
 
         <div class="filters-section">
-            <h3>🔍 Filtri di Ricerca</h3>
+            <div class="filters-header">
+                <h3>🔍 Filtri di Ricerca</h3>
+                <span id="drawingsCount" class="drawings-count"></span>
+            </div>
             <div class="filters-grid">
                 <input type="text" id="filterNumero" placeholder="Filtra per Numero Disegno">
                 <input type="text" id="filterCliente" placeholder="Filtra per Cliente">
@@ -39,31 +49,25 @@
             <table id="drawingsTable">
                 <thead>
                     <tr>
-                        <th>NUMERO DISEGNO</th>
-                        <th>CLIENTE</th>
-                        <th>CANTIERE</th>
-                        <th>OGGETTO LAVORO</th>
+                        <th data-sort="numeroDisegno" class="sortable">NUMERO DISEGNO</th>
+                        <th data-sort="cliente" class="sortable">CLIENTE</th>
+                        <th data-sort="cantiere" class="sortable">CANTIERE</th>
+                        <th data-sort="oggettoLavoro" class="sortable">OGGETTO LAVORO</th>
                         <th>DISEGNI OFFICINA</th>
                         <th>DISEGNI CANTIERE</th>
                         <th>RDO MATERIALI</th>
-                        <th>ORDINE MATERIALI</th>
-                        <th>ARRIVO MATERIALE</th>
                         <th>RDO BULLONERIA</th>
-                        <th>ORDINE BULLONERIA</th>
-                        <th>ARRIVO BULLONERIA</th>
                         <th>DXF PIASTRE</th>
                         <th>NOTE</th>
                         <th>AZIONI</th>
                     </tr>
                 </thead>
-                <tbody id="tableBody">
-                    <!-- Righe generate dinamicamente -->
-                </tbody>
+                <tbody id="tableBody"></tbody>
             </table>
         </div>
     </div>
 
-    <!-- Modal per aggiungere/modificare disegno -->
+    <!-- Modal disegno -->
     <div id="modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -74,162 +78,95 @@
                 </div>
             </div>
             <form id="drawingForm">
+                <!-- Dati principali -->
                 <div class="form-grid">
                     <div class="form-group">
                         <label for="numeroDisegno">Numero Disegno *</label>
                         <input type="text" id="numeroDisegno" required>
                         <small>Es: 910/2025</small>
                     </div>
-
                     <div class="form-group">
                         <label for="dataDisegno">Data Disegno</label>
                         <input type="date" id="dataDisegno">
-                        <small>Data di creazione del disegno</small>
                     </div>
-
                     <div class="form-group">
                         <label for="cliente">Cliente *</label>
                         <input type="text" id="cliente" list="clientiList" required>
-                        <datalist id="clientiList"></datalist>
                     </div>
-
                     <div class="form-group">
                         <label for="cantiere">Cantiere</label>
                         <input type="text" id="cantiere" list="cantieriList">
-                        <datalist id="cantieriList"></datalist>
                     </div>
-
                     <div class="form-group full-width">
                         <label for="oggettoLavoro">Oggetto Lavoro</label>
                         <input type="text" id="oggettoLavoro">
                     </div>
                 </div>
 
+                <!-- Sezione Disegni Officina -->
                 <h3 class="section-title">
                     Disegni Officina
                     <label class="checkbox-na"><input type="checkbox" id="disegniOfficinaNonNecessario"> Non necessario</label>
                 </h3>
-                <div class="form-grid" id="disegniOfficinaFields">
-                    <div class="form-group">
-                        <label for="disegniOfficinaConsegnato">Consegnato a</label>
-                        <input type="text" id="disegniOfficinaConsegnato" list="consegnatoList">
-                        <datalist id="consegnatoList"></datalist>
-                    </div>
-                    <div class="form-group">
-                        <label for="disegniOfficinaData">Data</label>
-                        <input type="date" id="disegniOfficinaData">
-                    </div>
-                </div>
+                <div id="disegniOfficinaEntries" class="section-entries"></div>
+                <button type="button" class="btn-add-entry" data-section="disegniOfficina" id="disegniOfficinaAddBtn">+ Aggiungi Disegno Officina</button>
 
+                <!-- Sezione Disegni Cantiere -->
                 <h3 class="section-title">
                     Disegni Cantiere
                     <label class="checkbox-na"><input type="checkbox" id="disegniCantiereNonNecessario"> Non necessario</label>
                 </h3>
-                <div class="form-grid" id="disegniCantiereFields">
-                    <div class="form-group">
-                        <label for="disegniCantiereConsegnato">Consegnato a</label>
-                        <input type="text" id="disegniCantiereConsegnato" list="consegnatoList">
-                    </div>
-                    <div class="form-group">
-                        <label for="disegniCantiereData">Data</label>
-                        <input type="date" id="disegniCantiereData">
-                    </div>
-                </div>
+                <div id="disegniCantiereEntries" class="section-entries"></div>
+                <button type="button" class="btn-add-entry" data-section="disegniCantiere" id="disegniCantiereAddBtn">+ Aggiungi Disegno Cantiere</button>
 
+                <!-- Sezione RDO Materiali -->
                 <h3 class="section-title">
                     RDO Materiali
                     <label class="checkbox-na"><input type="checkbox" id="rdoMaterialiNonNecessario"> Non necessario</label>
                 </h3>
-                <div id="rdoMaterialiFields">
-                    <div class="form-grid">
-                        <div class="form-group">
-                            <label for="rdoMaterialiConsegnato">Consegnato a</label>
-                            <input type="text" id="rdoMaterialiConsegnato" list="consegnatoList">
-                        </div>
-                        <div class="form-group">
-                            <label for="rdoMaterialiData">Data</label>
-                            <input type="date" id="rdoMaterialiData">
-                        </div>
-                    </div>
+                <div id="rdoMaterialiEntries" class="section-entries"></div>
+                <button type="button" class="btn-add-entry" data-section="rdoMateriali" id="rdoMaterialiAddBtn">+ Aggiungi RDO Materiali</button>
 
-                    <div class="form-grid">
-                        <div class="form-group">
-                            <label for="ordineMateriali">Ordine Materiali</label>
-                            <input type="text" id="ordineMateriali">
-                        </div>
-                        <div class="form-group">
-                            <label for="arrivoMateriale">Arrivo Materiale</label>
-                            <input type="date" id="arrivoMateriale">
-                        </div>
-                    </div>
-                </div>
-
+                <!-- Sezione RDO Bulloneria -->
                 <h3 class="section-title">
                     RDO Bulloneria
                     <label class="checkbox-na"><input type="checkbox" id="rdoBulloneriaNonNecessario"> Non necessario</label>
                 </h3>
-                <div id="rdoBulloneriaFields">
-                    <div class="form-grid">
-                        <div class="form-group">
-                            <label for="rdoBulloneriaConsegnato">Consegnato a</label>
-                            <input type="text" id="rdoBulloneriaConsegnato" list="consegnatoList">
-                        </div>
-                        <div class="form-group">
-                            <label for="rdoBulloneriaData">Data</label>
-                            <input type="date" id="rdoBulloneriaData">
-                        </div>
-                    </div>
+                <div id="rdoBulloneriaEntries" class="section-entries"></div>
+                <button type="button" class="btn-add-entry" data-section="rdoBulloneria" id="rdoBulloneriaAddBtn">+ Aggiungi RDO Bulloneria</button>
 
-                    <div class="form-grid">
-                        <div class="form-group">
-                            <label for="ordineBulloneria">Ordine Bulloneria</label>
-                            <input type="text" id="ordineBulloneria">
-                        </div>
-                        <div class="form-group">
-                            <label for="arrivoBulloneria">Arrivo Bulloneria</label>
-                            <input type="date" id="arrivoBulloneria">
-                        </div>
-                    </div>
-                </div>
-
+                <!-- Sezione DXF Piastre -->
                 <h3 class="section-title">
                     DXF Piastre
                     <label class="checkbox-na"><input type="checkbox" id="dxfPiastreNonNecessario"> Non necessario</label>
                 </h3>
-                <div class="form-grid" id="dxfPiastreFields">
-                    <div class="form-group">
-                        <label for="dxfPiastreConsegnato">Consegnato a</label>
-                        <input type="text" id="dxfPiastreConsegnato" list="consegnatoList">
-                    </div>
-                    <div class="form-group">
-                        <label for="dxfPiastreData">Data</label>
-                        <input type="date" id="dxfPiastreData">
-                    </div>
-                </div>
+                <div id="dxfPiastreEntries" class="section-entries"></div>
+                <button type="button" class="btn-add-entry" data-section="dxfPiastre" id="dxfPiastreAddBtn">+ Aggiungi DXF Piastre</button>
 
+                <!-- Note -->
                 <h3 class="section-title">Note</h3>
                 <div class="form-group full-width">
                     <label for="note">Note / Cose da fare</label>
-                    <textarea id="note" rows="5" placeholder="Es:&#10;- Ordinare lamiere grecate&#10;- Modificare interassi colonne&#10;- Verificare quote&#10;..."></textarea>
-                    <small>Inserisci le note, una per riga. Quando ci sono note, il campo apparirà in rosso.</small>
+                    <textarea id="note" rows="5" placeholder="Es:&#10;- Ordinare lamiere grecate&#10;- Modificare interassi colonne&#10;- Verificare quote"></textarea>
+                    <small>Inserisci le note, una per riga. Quando ci sono note, il campo apparira in rosso.</small>
                 </div>
             </form>
         </div>
     </div>
 
-    <!-- Modal Login Admin -->
+    <!-- Modal Login -->
     <div id="adminModal" class="modal">
         <div class="modal-content" style="max-width: 400px;">
             <div class="modal-header">
-                <h2>🔐 Login Amministratore</h2>
+                <h2>🔐 Login</h2>
                 <span class="close-admin">&times;</span>
             </div>
             <form id="adminForm">
                 <div style="padding: 30px;">
                     <div class="form-group">
-                        <label for="adminPassword">Password Admin</label>
+                        <label for="adminPassword">Password</label>
                         <input type="password" id="adminPassword" required placeholder="Inserisci password">
-                        <small>Solo gli amministratori possono modificare tutti i campi</small>
+                        <small>Inserisci la password del tuo account</small>
                     </div>
                     <div class="form-actions">
                         <button type="submit" class="btn-primary">✓ Accedi</button>
