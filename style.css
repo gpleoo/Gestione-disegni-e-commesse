@@ -870,6 +870,70 @@ form {
     font-size: 10px;
 }
 
+/* Riga preventivo nella tabella */
+.row-preventivo {
+    opacity: 0.7;
+}
+
+.row-preventivo:hover {
+    opacity: 1;
+}
+
+/* --- Barra stato file --- */
+.file-storage-bar {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 6px 12px;
+    background-color: var(--bg-secondary);
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+}
+
+.file-status {
+    font-size: 12px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.file-status.connected {
+    color: var(--success-color);
+}
+
+.file-status.disconnected {
+    color: var(--text-secondary);
+}
+
+.file-status.reconnect {
+    color: #ffa500;
+}
+
+.file-status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.file-status-dot.connected {
+    background-color: var(--success-color);
+}
+
+.file-status-dot.disconnected {
+    background-color: var(--text-secondary);
+}
+
+.file-status-dot.reconnect {
+    background-color: #ffa500;
+}
+
+.btn-file {
+    padding: 5px 10px !important;
+    font-size: 12px !important;
+}
+
 /* Scrollbar personalizzata */
 ::-webkit-scrollbar {
     width: 12px;

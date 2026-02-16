@@ -1,9 +1,8 @@
 // ============================================================
-// Gestione Disegni e Commesse - v3.0
-// Sezioni multiple con descrizione
+// Gestione Disegni e Commesse - v4.0
+// Salvataggio su file locale + sezioni multiple
 // ============================================================
 
-// Configurazione sezioni
 const SECTIONS = {
     disegniOfficina: { label: 'Disegni Officina', addLabel: 'Disegno Officina', hasOrdine: false },
     disegniCantiere: { label: 'Disegni Cantiere', addLabel: 'Disegno Cantiere', hasOrdine: false },
@@ -27,6 +26,48 @@ async function sha256(message) {
     const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// --- IndexedDB per salvare il file handle ---
+function openHandleDB() {
+    return new Promise((resolve, reject) => {
+        const req = indexedDB.open('DrawingsFileHandleDB', 1);
+        req.onupgradeneeded = () => req.result.createObjectStore('handles');
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+    });
+}
+
+async function saveFileHandle(handle) {
+    const db = await openHandleDB();
+    const tx = db.transaction('handles', 'readwrite');
+    tx.objectStore('handles').put(handle, 'dataFile');
+    return new Promise((resolve, reject) => {
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+    });
+}
+
+async function getStoredFileHandle() {
+    try {
+        const db = await openHandleDB();
+        const tx = db.transaction('handles', 'readonly');
+        const req = tx.objectStore('handles').get('dataFile');
+        return new Promise((resolve) => {
+            req.onsuccess = () => resolve(req.result || null);
+            req.onerror = () => resolve(null);
+        });
+    } catch {
+        return null;
+    }
+}
+
+async function clearStoredFileHandle() {
+    try {
+        const db = await openHandleDB();
+        const tx = db.transaction('handles', 'readwrite');
+        tx.objectStore('handles').delete('dataFile');
+    } catch { /* ignora */ }
 }
 
 // --- Toast ---
@@ -54,11 +95,16 @@ class ToastManager {
 // --- Classe principale ---
 class DrawingsManager {
     constructor() {
-        this.drawings = this.loadDrawings();
+        this.drawings = [];
         this.currentEditId = null;
         this.toast = new ToastManager();
         this.sortColumn = 'createdAt';
         this.sortDirection = 'desc';
+
+        // File System Access API
+        this.fileHandle = null;
+        this.fileName = null;
+        this.fileSupported = 'showOpenFilePicker' in window;
 
         this.users = {
             'admin': { hash: '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', role: 'admin', name: 'Amministratore' },
@@ -84,31 +130,275 @@ class DrawingsManager {
             filterOggetto: document.getElementById('filterOggetto'),
             exportBtn: document.getElementById('exportBtn'),
             importBtn: document.getElementById('importBtn'),
-            importFile: document.getElementById('importFile')
+            importFile: document.getElementById('importFile'),
+            fileStatus: document.getElementById('fileStatus'),
+            fileConnectBtn: document.getElementById('fileConnectBtn'),
+            fileDisconnectBtn: document.getElementById('fileDisconnectBtn')
         };
 
         this.currentUser = this.loadCurrentUser();
         this.initializeEventListeners();
         this.updateUserInterface();
+
+        // Carica dati da localStorage come partenza, poi prova il file
+        this.drawings = this.loadFromLocalStorage();
         this.renderTable();
-        this.checkBackupReminder();
+        this.initFileStorage();
     }
 
-    // --- Storage e migrazione ---
-    loadDrawings() {
+    // =====================================================
+    // FILE STORAGE - Salvataggio su file locale
+    // =====================================================
+
+    async initFileStorage() {
+        if (!this.fileSupported) {
+            this.updateFileStatus('non-supportato');
+            this.toast.warning('Il tuo browser non supporta il salvataggio su file. Usa Chrome o Edge. I dati saranno salvati nel browser.');
+            return;
+        }
+
+        // Prova a recuperare un handle salvato in precedenza
+        const storedHandle = await getStoredFileHandle();
+        if (storedHandle) {
+            this.updateFileStatus('riconnetti', storedHandle.name);
+        } else {
+            this.updateFileStatus('disconnesso');
+        }
+    }
+
+    async connectFile() {
+        if (!this.fileSupported) return;
+
+        try {
+            // Chiedi all'utente di scegliere/creare il file
+            const [handle] = await window.showOpenFilePicker({
+                types: [{ description: 'File dati JSON', accept: { 'application/json': ['.json'] } }],
+                multiple: false
+            });
+
+            this.fileHandle = handle;
+            this.fileName = handle.name;
+            await saveFileHandle(handle);
+
+            // Carica dati dal file
+            await this.loadFromFile();
+            this.renderTable();
+            this.updateFileStatus('connesso');
+            this.toast.success(`File "${this.fileName}" connesso! I dati vengono salvati sul tuo PC.`);
+        } catch (err) {
+            if (err.name === 'AbortError') return; // L'utente ha annullato
+            this.toast.error('Errore nella connessione al file: ' + err.message);
+        }
+    }
+
+    async createNewFile() {
+        if (!this.fileSupported) return;
+
+        try {
+            const handle = await window.showSaveFilePicker({
+                suggestedName: 'dati_disegni.json',
+                types: [{ description: 'File dati JSON', accept: { 'application/json': ['.json'] } }]
+            });
+
+            this.fileHandle = handle;
+            this.fileName = handle.name;
+            await saveFileHandle(handle);
+
+            // Salva i dati attuali nel nuovo file
+            await this.saveToFile();
+            this.updateFileStatus('connesso');
+            this.toast.success(`File "${this.fileName}" creato! I dati vengono salvati sul tuo PC.`);
+        } catch (err) {
+            if (err.name === 'AbortError') return;
+            this.toast.error('Errore nella creazione del file: ' + err.message);
+        }
+    }
+
+    async reconnectFile() {
+        const storedHandle = await getStoredFileHandle();
+        if (!storedHandle) {
+            this.toast.error('Nessun file salvato in precedenza.');
+            this.updateFileStatus('disconnesso');
+            return;
+        }
+
+        try {
+            // Richiedi permesso (serve un click dell'utente)
+            const permission = await storedHandle.requestPermission({ mode: 'readwrite' });
+            if (permission !== 'granted') {
+                this.toast.warning('Permesso negato. Clicca di nuovo per autorizzare.');
+                return;
+            }
+
+            this.fileHandle = storedHandle;
+            this.fileName = storedHandle.name;
+
+            await this.loadFromFile();
+            this.renderTable();
+            this.updateFileStatus('connesso');
+            this.toast.success(`File "${this.fileName}" riconnesso!`);
+        } catch (err) {
+            this.toast.error('Impossibile riconnettersi al file: ' + err.message);
+            this.updateFileStatus('disconnesso');
+            await clearStoredFileHandle();
+        }
+    }
+
+    async disconnectFile() {
+        this.fileHandle = null;
+        this.fileName = null;
+        await clearStoredFileHandle();
+        this.updateFileStatus('disconnesso');
+        this.toast.info('File disconnesso. I dati restano salvati nel browser.');
+    }
+
+    async loadFromFile() {
+        if (!this.fileHandle) return;
+
+        try {
+            const file = await this.fileHandle.getFile();
+            const text = await file.text();
+
+            if (!text.trim()) {
+                // File vuoto: salva i dati correnti nel file
+                await this.saveToFile();
+                return;
+            }
+
+            const data = JSON.parse(text);
+            let drawings;
+
+            if (data.drawings && Array.isArray(data.drawings)) {
+                drawings = data.drawings;
+            } else if (Array.isArray(data)) {
+                drawings = data;
+            } else {
+                throw new Error('Formato file non valido');
+            }
+
+            this.drawings = drawings.map(d => this.migrateDrawing(d));
+
+            // Sincronizza anche con localStorage come backup
+            this.saveToLocalStorage();
+        } catch (err) {
+            this.toast.error('Errore lettura file: ' + err.message);
+            throw err;
+        }
+    }
+
+    async saveToFile() {
+        if (!this.fileHandle) return;
+
+        try {
+            const dataToSave = {
+                version: '4.0',
+                lastSaved: new Date().toISOString(),
+                totalDrawings: this.drawings.length,
+                drawings: this.drawings
+            };
+            const jsonString = JSON.stringify(dataToSave, null, 2);
+
+            const writable = await this.fileHandle.createWritable();
+            await writable.write(jsonString);
+            await writable.close();
+        } catch (err) {
+            this.toast.error('Errore salvataggio file: ' + err.message);
+            console.error('Errore saveToFile:', err);
+        }
+    }
+
+    updateFileStatus(status, fileName) {
+        const statusEl = this.dom.fileStatus;
+        const connectBtn = this.dom.fileConnectBtn;
+        const disconnectBtn = this.dom.fileDisconnectBtn;
+
+        if (!statusEl) return;
+
+        switch (status) {
+            case 'connesso':
+                statusEl.innerHTML = `<span class="file-status-dot connected"></span> ${escapeHtml(this.fileName)}`;
+                statusEl.className = 'file-status connected';
+                connectBtn.style.display = 'none';
+                disconnectBtn.style.display = '';
+                break;
+            case 'riconnetti':
+                statusEl.innerHTML = `<span class="file-status-dot reconnect"></span> ${escapeHtml(fileName || 'File precedente')}`;
+                statusEl.className = 'file-status reconnect';
+                connectBtn.textContent = '\u{1F504} Riconnetti';
+                connectBtn.style.display = '';
+                connectBtn.onclick = () => this.reconnectFile();
+                disconnectBtn.style.display = '';
+                break;
+            case 'disconnesso':
+                statusEl.innerHTML = '<span class="file-status-dot disconnected"></span> Non connesso';
+                statusEl.className = 'file-status disconnected';
+                connectBtn.textContent = '\u{1F4C1} Apri File';
+                connectBtn.style.display = '';
+                connectBtn.onclick = () => this.showFileModal();
+                disconnectBtn.style.display = 'none';
+                break;
+            case 'non-supportato':
+                statusEl.innerHTML = '<span class="file-status-dot disconnected"></span> Solo browser';
+                statusEl.className = 'file-status disconnected';
+                connectBtn.style.display = 'none';
+                disconnectBtn.style.display = 'none';
+                break;
+        }
+    }
+
+    showFileModal() {
+        const modal = document.getElementById('fileModal');
+        if (modal) modal.style.display = 'block';
+    }
+
+    closeFileModal() {
+        const modal = document.getElementById('fileModal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    // =====================================================
+    // STORAGE (localStorage come backup/fallback)
+    // =====================================================
+
+    loadFromLocalStorage() {
         const stored = localStorage.getItem('drawings');
         if (!stored) return [];
-        const drawings = JSON.parse(stored);
-        return drawings.map(d => this.migrateDrawing(d));
+        try {
+            const drawings = JSON.parse(stored);
+            if (!Array.isArray(drawings)) return [];
+            return drawings.map(d => this.migrateDrawing(d));
+        } catch (error) {
+            console.error('Errore lettura localStorage:', error);
+            return [];
+        }
     }
 
+    saveToLocalStorage() {
+        try {
+            localStorage.setItem('drawings', JSON.stringify(this.drawings));
+            localStorage.setItem('lastSaveDate', new Date().toISOString());
+        } catch (error) {
+            console.error('Errore salvataggio localStorage:', error);
+        }
+    }
+
+    // Salva ovunque: file locale (se connesso) + localStorage (sempre)
+    async saveDrawings() {
+        this.saveToLocalStorage();
+        if (this.fileHandle) {
+            await this.saveToFile();
+        }
+    }
+
+    // =====================================================
+    // MIGRAZIONE DATI
+    // =====================================================
+
     migrateDrawing(d) {
-        // Se gia in formato array, non serve migrazione
         if (Array.isArray(d.disegniOfficina)) return d;
 
         const migrated = { ...d };
 
-        // Migra sezioni semplici
         ['disegniOfficina', 'disegniCantiere', 'dxfPiastre'].forEach(key => {
             const old = migrated[key];
             if (old && (old.consegnato || old.data)) {
@@ -118,15 +408,11 @@ class DrawingsManager {
             }
         });
 
-        // Migra RDO Materiali (include ordine + arrivo)
         const rmOld = migrated.rdoMateriali;
         if ((rmOld && (rmOld.consegnato || rmOld.data)) || migrated.ordineMateriali || migrated.arrivoMateriale) {
             migrated.rdoMateriali = [{
-                descrizione: '',
-                consegnato: rmOld?.consegnato || '',
-                data: rmOld?.data || '',
-                ordine: migrated.ordineMateriali || '',
-                arrivo: migrated.arrivoMateriale || ''
+                descrizione: '', consegnato: rmOld?.consegnato || '', data: rmOld?.data || '',
+                ordine: migrated.ordineMateriali || '', arrivo: migrated.arrivoMateriale || ''
             }];
         } else {
             migrated.rdoMateriali = [];
@@ -134,15 +420,11 @@ class DrawingsManager {
         delete migrated.ordineMateriali;
         delete migrated.arrivoMateriale;
 
-        // Migra RDO Bulloneria
         const rbOld = migrated.rdoBulloneria;
         if ((rbOld && (rbOld.consegnato || rbOld.data)) || migrated.ordineBulloneria || migrated.arrivoBulloneria) {
             migrated.rdoBulloneria = [{
-                descrizione: '',
-                consegnato: rbOld?.consegnato || '',
-                data: rbOld?.data || '',
-                ordine: migrated.ordineBulloneria || '',
-                arrivo: migrated.arrivoBulloneria || ''
+                descrizione: '', consegnato: rbOld?.consegnato || '', data: rbOld?.data || '',
+                ordine: migrated.ordineBulloneria || '', arrivo: migrated.arrivoBulloneria || ''
             }];
         } else {
             migrated.rdoBulloneria = [];
@@ -155,7 +437,12 @@ class DrawingsManager {
 
     loadCurrentUser() {
         const stored = localStorage.getItem('currentUser');
-        return stored ? JSON.parse(stored) : null;
+        if (!stored) return null;
+        try {
+            return JSON.parse(stored);
+        } catch {
+            return null;
+        }
     }
 
     saveCurrentUser() {
@@ -166,31 +453,10 @@ class DrawingsManager {
         }
     }
 
-    saveDrawings() {
-        try {
-            localStorage.setItem('drawings', JSON.stringify(this.drawings));
-            localStorage.setItem('lastSaveDate', new Date().toISOString());
-        } catch (error) {
-            this.toast.error('ERRORE: Impossibile salvare i dati! Spazio localStorage esaurito o bloccato.');
-            console.error('Errore salvataggio:', error);
-        }
-    }
+    // =====================================================
+    // EVENT LISTENERS
+    // =====================================================
 
-    checkBackupReminder() {
-        const lastExport = localStorage.getItem('lastExportDate');
-        if (!lastExport && this.drawings.length > 0) {
-            this.toast.warning('Non hai mai esportato un backup. Usa il pulsante Esporta per salvare i tuoi dati.');
-            return;
-        }
-        if (lastExport && this.drawings.length > 0) {
-            const daysSince = (Date.now() - new Date(lastExport).getTime()) / (1000 * 60 * 60 * 24);
-            if (daysSince > 7) {
-                this.toast.warning(`Ultimo backup: ${Math.floor(daysSince)} giorni fa. Ricordati di esportare!`);
-            }
-        }
-    }
-
-    // --- Event Listeners ---
     initializeEventListeners() {
         this.dom.addDrawingBtn.addEventListener('click', () => this.openModal());
         document.getElementById('cancelBtn').addEventListener('click', () => this.closeModal());
@@ -198,6 +464,17 @@ class DrawingsManager {
         window.addEventListener('click', (e) => {
             if (e.target === this.dom.modal) this.closeModal();
             if (e.target === this.dom.adminModal) this.closeAdminModal();
+            const fileModal = document.getElementById('fileModal');
+            if (e.target === fileModal) this.closeFileModal();
+        });
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                if (this.dom.modal.style.display === 'block') this.closeModal();
+                if (this.dom.adminModal.style.display === 'block') this.closeAdminModal();
+                const fileModal = document.getElementById('fileModal');
+                if (fileModal && fileModal.style.display === 'block') this.closeFileModal();
+            }
         });
 
         this.dom.drawingForm.addEventListener('submit', (e) => {
@@ -216,6 +493,24 @@ class DrawingsManager {
 
         document.querySelectorAll('.close-admin').forEach(btn => {
             btn.addEventListener('click', () => this.closeAdminModal());
+        });
+
+        // Disconnect file
+        if (this.dom.fileDisconnectBtn) {
+            this.dom.fileDisconnectBtn.addEventListener('click', () => this.disconnectFile());
+        }
+
+        // File modal buttons
+        document.getElementById('fileOpenExisting')?.addEventListener('click', async () => {
+            this.closeFileModal();
+            await this.connectFile();
+        });
+        document.getElementById('fileCreateNew')?.addEventListener('click', async () => {
+            this.closeFileModal();
+            await this.createNewFile();
+        });
+        document.querySelectorAll('.close-file-modal').forEach(btn => {
+            btn.addEventListener('click', () => this.closeFileModal());
         });
 
         // Filtri
@@ -271,15 +566,12 @@ class DrawingsManager {
         this.dom.drawingForm.addEventListener('click', (e) => {
             const addBtn = e.target.closest('.btn-add-entry');
             if (addBtn) {
-                const section = addBtn.dataset.section;
-                this.addEntry(section);
+                this.addEntry(addBtn.dataset.section);
                 return;
             }
             const removeBtn = e.target.closest('.btn-remove-entry');
             if (removeBtn) {
-                const section = removeBtn.dataset.section;
-                const index = Number(removeBtn.dataset.index);
-                this.removeEntry(section, index);
+                this.removeEntry(removeBtn.dataset.section, Number(removeBtn.dataset.index));
                 return;
             }
         });
@@ -288,9 +580,7 @@ class DrawingsManager {
         Object.keys(SECTIONS).forEach(key => {
             const cb = document.getElementById(`${key}NonNecessario`);
             if (cb) {
-                cb.addEventListener('change', () => {
-                    this.toggleSectionDisabled(key, cb.checked);
-                });
+                cb.addEventListener('change', () => this.toggleSectionDisabled(key, cb.checked));
             }
         });
     }
@@ -318,7 +608,10 @@ class DrawingsManager {
         });
     }
 
-    // --- Autenticazione ---
+    // =====================================================
+    // AUTENTICAZIONE
+    // =====================================================
+
     openAdminModal() {
         this.dom.adminModal.style.display = 'block';
         this.dom.adminPassword.value = '';
@@ -331,8 +624,7 @@ class DrawingsManager {
     }
 
     async checkAdminPassword() {
-        const password = this.dom.adminPassword.value;
-        const passwordHash = await sha256(password);
+        const passwordHash = await sha256(this.dom.adminPassword.value);
         let foundUser = null, foundUsername = null;
 
         for (const [username, userData] of Object.entries(this.users)) {
@@ -399,7 +691,10 @@ class DrawingsManager {
         }
     }
 
-    // --- Modal e form dinamico ---
+    // =====================================================
+    // MODAL E FORM DINAMICO
+    // =====================================================
+
     openModal(drawing = null) {
         if (!this.canEdit()) {
             this.toast.warning(this.isViewer()
@@ -418,7 +713,6 @@ class DrawingsManager {
             this.dom.drawingForm.reset();
             this.suggestNextNumber();
             this.setTodayDate();
-            // Inizializza sezioni con 1 entry vuota
             Object.keys(SECTIONS).forEach(key => {
                 this.renderSectionEntries(key, [{}]);
                 const cb = document.getElementById(`${key}NonNecessario`);
@@ -436,7 +730,7 @@ class DrawingsManager {
         this.currentEditId = null;
     }
 
-    // --- Gestione entries dinamiche ---
+    // --- Entry dinamiche ---
     renderSectionEntries(sectionKey, entries) {
         const container = document.getElementById(`${sectionKey}Entries`);
         const addBtn = document.getElementById(`${sectionKey}AddBtn`);
@@ -447,7 +741,6 @@ class DrawingsManager {
 
         container.innerHTML = data.map((entry, i) => this.renderEntryHtml(sectionKey, i, entry)).join('');
 
-        // Aggiorna stato pulsante aggiungi
         if (addBtn) {
             const atMax = data.length >= MAX_ENTRIES;
             addBtn.disabled = atMax;
@@ -460,42 +753,24 @@ class DrawingsManager {
     renderEntryHtml(sectionKey, index, data = {}) {
         const config = SECTIONS[sectionKey];
         let html = `<div class="entry-block" data-section="${sectionKey}" data-index="${index}">`;
-        html += `<div class="entry-header">`;
-        html += `<span class="entry-label">#${index + 1}</span>`;
-        html += `<button type="button" class="btn-remove-entry" data-section="${sectionKey}" data-index="${index}" title="Rimuovi">\u2715 Rimuovi</button>`;
-        html += `</div>`;
+        html += `<div class="entry-header"><span class="entry-label">#${index + 1}</span>`;
+        html += `<button type="button" class="btn-remove-entry" data-section="${sectionKey}" data-index="${index}" title="Rimuovi">\u2715 Rimuovi</button></div>`;
         html += `<div class="form-grid">`;
 
-        // Descrizione (full width)
-        html += `<div class="form-group full-width">`;
-        html += `<label>Descrizione</label>`;
-        html += `<input type="text" data-field="descrizione" value="${escapeHtml(data.descrizione || '')}" placeholder="Es: Profili HEA 200, Lamiere S355...">`;
-        html += `</div>`;
+        html += `<div class="form-group full-width"><label>Descrizione</label>`;
+        html += `<input type="text" data-field="descrizione" value="${escapeHtml(data.descrizione || '')}" placeholder="Es: Profili HEA 200, Lamiere S355..."></div>`;
 
-        // Consegnato a
-        html += `<div class="form-group">`;
-        html += `<label>Consegnato a</label>`;
-        html += `<input type="text" data-field="consegnato" value="${escapeHtml(data.consegnato || '')}" list="consegnatoList">`;
-        html += `</div>`;
+        html += `<div class="form-group"><label>Consegnato a</label>`;
+        html += `<input type="text" data-field="consegnato" value="${escapeHtml(data.consegnato || '')}" list="consegnatoList"></div>`;
 
-        // Data
-        html += `<div class="form-group">`;
-        html += `<label>Data</label>`;
-        html += `<input type="date" data-field="data" value="${data.data || ''}">`;
-        html += `</div>`;
+        html += `<div class="form-group"><label>Data</label>`;
+        html += `<input type="date" data-field="data" value="${data.data || ''}"></div>`;
 
         if (config.hasOrdine) {
-            // Ordine
-            html += `<div class="form-group">`;
-            html += `<label>Ordine</label>`;
-            html += `<input type="text" data-field="ordine" value="${escapeHtml(data.ordine || '')}">`;
-            html += `</div>`;
-
-            // Arrivo
-            html += `<div class="form-group">`;
-            html += `<label>Arrivo</label>`;
-            html += `<input type="date" data-field="arrivo" value="${data.arrivo || ''}">`;
-            html += `</div>`;
+            html += `<div class="form-group"><label>Ordine</label>`;
+            html += `<input type="text" data-field="ordine" value="${escapeHtml(data.ordine || '')}"></div>`;
+            html += `<div class="form-group"><label>Arrivo</label>`;
+            html += `<input type="date" data-field="arrivo" value="${data.arrivo || ''}"></div>`;
         }
 
         html += `</div></div>`;
@@ -510,8 +785,6 @@ class DrawingsManager {
         }
         currentEntries.push({});
         this.renderSectionEntries(sectionKey, currentEntries);
-
-        // Rispetta stato "Non Necessario"
         const cb = document.getElementById(`${sectionKey}NonNecessario`);
         if (cb && cb.checked) this.toggleSectionDisabled(sectionKey, true);
     }
@@ -520,7 +793,6 @@ class DrawingsManager {
         const currentEntries = this.collectSectionData(sectionKey);
         currentEntries.splice(index, 1);
         this.renderSectionEntries(sectionKey, currentEntries.length > 0 ? currentEntries : [{}]);
-
         const cb = document.getElementById(`${sectionKey}NonNecessario`);
         if (cb && cb.checked) this.toggleSectionDisabled(sectionKey, true);
     }
@@ -529,10 +801,9 @@ class DrawingsManager {
         const container = document.getElementById(`${sectionKey}Entries`);
         if (!container) return [];
         const config = SECTIONS[sectionKey];
-        const entries = container.querySelectorAll('.entry-block');
         const data = [];
 
-        entries.forEach(entry => {
+        container.querySelectorAll('.entry-block').forEach(entry => {
             const item = {
                 descrizione: entry.querySelector('[data-field="descrizione"]')?.value || '',
                 consegnato: entry.querySelector('[data-field="consegnato"]')?.value || '',
@@ -544,11 +815,9 @@ class DrawingsManager {
             }
             data.push(item);
         });
-
         return data;
     }
 
-    // Filtra entry vuote prima di salvare
     filterEmptyEntries(entries, hasOrdine) {
         return entries.filter(e => {
             return e.descrizione || e.consegnato || e.data ||
@@ -579,12 +848,9 @@ class DrawingsManager {
 
     updateDatalist(datalistId, values) {
         const datalist = document.getElementById(datalistId);
-        if (datalist) {
-            datalist.innerHTML = values.map(v => `<option value="${escapeHtml(v)}">`).join('');
-        }
+        if (datalist) datalist.innerHTML = values.map(v => `<option value="${escapeHtml(v)}">`).join('');
     }
 
-    // --- Numerazione ---
     suggestNextNumber() {
         const currentYear = new Date().getFullYear();
         const drawingsThisYear = this.drawings.filter(d => d.numeroDisegno.includes(`/${currentYear}`));
@@ -601,13 +867,10 @@ class DrawingsManager {
 
     setTodayDate() {
         const today = new Date();
-        const y = today.getFullYear();
-        const m = String(today.getMonth() + 1).padStart(2, '0');
-        const d = String(today.getDate()).padStart(2, '0');
-        document.getElementById('dataDisegno').value = `${y}-${m}-${d}`;
+        document.getElementById('dataDisegno').value =
+            `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
     }
 
-    // --- Popola form ---
     populateForm(drawing) {
         document.getElementById('numeroDisegno').value = drawing.numeroDisegno || '';
         document.getElementById('dataDisegno').value = drawing.dataDisegno || '';
@@ -616,23 +879,23 @@ class DrawingsManager {
         document.getElementById('oggettoLavoro').value = drawing.oggettoLavoro || '';
         document.getElementById('note').value = drawing.note || '';
 
-        // Popola sezioni dinamiche
         Object.keys(SECTIONS).forEach(key => {
             const entries = Array.isArray(drawing[key]) ? drawing[key] : [];
             const naCheckbox = document.getElementById(`${key}NonNecessario`);
             const isNa = drawing[`${key}NonNecessario`] || false;
-
             if (naCheckbox) naCheckbox.checked = isNa;
             this.renderSectionEntries(key, entries.length > 0 ? entries : [{}]);
             this.toggleSectionDisabled(key, isNa);
         });
     }
 
-    // --- Salvataggio ---
-    saveDrawing() {
+    // =====================================================
+    // OPERAZIONI DATI
+    // =====================================================
+
+    async saveDrawing() {
         const numeroDisegno = document.getElementById('numeroDisegno').value.trim();
 
-        // Controllo duplicati
         const duplicato = this.drawings.find(d =>
             d.numeroDisegno === numeroDisegno && d.id !== this.currentEditId
         );
@@ -650,18 +913,14 @@ class DrawingsManager {
             oggettoLavoro: document.getElementById('oggettoLavoro').value,
             note: document.getElementById('note').value,
             stato: this.currentEditId ?
-                this.drawings.find(d => d.id === this.currentEditId)?.stato || 'preventivo' :
-                'preventivo',
+                this.drawings.find(d => d.id === this.currentEditId)?.stato || 'preventivo' : 'preventivo',
             createdAt: this.currentEditId ?
-                this.drawings.find(d => d.id === this.currentEditId)?.createdAt || Date.now() :
-                Date.now()
+                this.drawings.find(d => d.id === this.currentEditId)?.createdAt || Date.now() : Date.now()
         };
 
-        // Raccogli dati sezioni
         Object.keys(SECTIONS).forEach(key => {
             const config = SECTIONS[key];
-            const raw = this.collectSectionData(key);
-            drawingData[key] = this.filterEmptyEntries(raw, config.hasOrdine);
+            drawingData[key] = this.filterEmptyEntries(this.collectSectionData(key), config.hasOrdine);
             drawingData[`${key}NonNecessario`] = document.getElementById(`${key}NonNecessario`)?.checked || false;
         });
 
@@ -674,55 +933,48 @@ class DrawingsManager {
             this.toast.success('Nuovo disegno salvato!');
         }
 
-        this.saveDrawings();
+        await this.saveDrawings();
         this.renderTable();
         this.closeModal();
     }
 
-    deleteDrawing(id) {
+    async deleteDrawing(id) {
         const drawing = this.drawings.find(d => d.id === id);
         const numero = drawing ? drawing.numeroDisegno : '';
         if (confirm(`Sei sicuro di voler eliminare il disegno ${numero}?`)) {
             this.drawings = this.drawings.filter(d => d.id !== id);
-            this.saveDrawings();
+            await this.saveDrawings();
             this.renderTable();
             this.toast.info(`Disegno ${numero} eliminato.`);
         }
     }
 
-    toggleCommessa(id) {
+    async toggleCommessa(id) {
         const drawing = this.drawings.find(d => d.id === id);
         if (drawing) {
             drawing.stato = drawing.stato === 'preventivo' ? 'commessa' : 'preventivo';
-            this.saveDrawings();
+            await this.saveDrawings();
             this.renderTable();
             this.toast.info(`Disegno ${drawing.numeroDisegno}: ${drawing.stato === 'commessa' ? 'Commessa attivata' : 'Tornato a Preventivo'}`);
         }
     }
 
-    // --- Formattazione celle multi-entry ---
+    // =====================================================
+    // FORMATTAZIONE CELLE
+    // =====================================================
+
     formatMultiEntryCell(entries, isRequired, isPreventivo, isNonNecessario, hasOrdine) {
         if (isPreventivo) return '<div class="cell-preventivo">\u{1F4CB} PREVENTIVO</div>';
         if (isNonNecessario) return '<div class="cell-na-text">N/A</div>';
-
         if (!entries || entries.length === 0) {
             return isRequired ? '<div class="cell-empty">\u26A0\uFE0F VUOTO</div>' : '<div class="cell-empty">-</div>';
         }
 
         return entries.map((entry, i) => {
             let html = '<div class="entry-cell">';
+            if (entries.length > 1) html += `<div class="entry-cell-number">#${i + 1}</div>`;
+            if (entry.descrizione) html += `<div class="entry-cell-desc">${escapeHtml(entry.descrizione)}</div>`;
 
-            // Numero se multipli
-            if (entries.length > 1) {
-                html += `<div class="entry-cell-number">#${i + 1}</div>`;
-            }
-
-            // Descrizione
-            if (entry.descrizione) {
-                html += `<div class="entry-cell-desc">${escapeHtml(entry.descrizione)}</div>`;
-            }
-
-            // Consegnato e data
             const hasC = entry.consegnato?.trim();
             const hasD = entry.data?.trim();
 
@@ -738,7 +990,6 @@ class DrawingsManager {
                 html += `<div class="cell-warning">\u26A0\uFE0F Non compilato</div>`;
             }
 
-            // Ordine e arrivo (solo per RDO)
             if (hasOrdine) {
                 const hasO = entry.ordine?.trim();
                 const hasA = entry.arrivo?.trim();
@@ -770,7 +1021,6 @@ class DrawingsManager {
             const hasC = entry.consegnato?.trim();
             const hasD = entry.data?.trim();
             anyData = anyData || hasC || hasD;
-
             if (!hasC || !hasD) allComplete = false;
 
             if (hasOrdine) {
@@ -798,7 +1048,10 @@ class DrawingsManager {
         return { html: '<div class="notes-status-present">Presenti</div>', hasNotes: true };
     }
 
-    // --- Ordinamento ---
+    // =====================================================
+    // ORDINAMENTO E RENDERING
+    // =====================================================
+
     sortDrawings(drawings) {
         const sorted = [...drawings];
         sorted.sort((a, b) => {
@@ -824,21 +1077,16 @@ class DrawingsManager {
         return sorted;
     }
 
-    // --- Rendering tabella ---
     renderTable(filteredDrawings = null) {
         const drawingsToRender = filteredDrawings || this.drawings;
         const sortedDrawings = this.sortDrawings(drawingsToRender);
 
         const countEl = document.getElementById('drawingsCount');
-        if (countEl) {
-            countEl.textContent = `${sortedDrawings.length} disegn${sortedDrawings.length === 1 ? 'o' : 'i'}`;
-        }
+        if (countEl) countEl.textContent = `${sortedDrawings.length} disegn${sortedDrawings.length === 1 ? 'o' : 'i'}`;
 
         if (sortedDrawings.length === 0) {
-            this.dom.tableBody.innerHTML = `
-                <tr><td colspan="11" style="text-align:center;padding:40px;color:var(--text-secondary);">
-                    Nessun disegno presente. Clicca su "+ Nuovo Disegno" per iniziare.
-                </td></tr>`;
+            this.dom.tableBody.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:40px;color:var(--text-secondary);">
+                Nessun disegno presente. Clicca su "+ Nuovo Disegno" per iniziare.</td></tr>`;
             return;
         }
 
@@ -846,64 +1094,56 @@ class DrawingsManager {
             const isP = drawing.stato === 'preventivo';
             const notesData = this.formatNotes(drawing.note);
 
-            // Genera celle per ogni sezione
             const sectionCells = Object.keys(SECTIONS).map(key => {
                 const config = SECTIONS[key];
                 const entries = Array.isArray(drawing[key]) ? drawing[key] : [];
                 const isNa = drawing[`${key}NonNecessario`] || false;
-                const isRequired = !isP;
-                const cls = this.getMultiEntryCellClass(entries, isRequired, isP, isNa, config.hasOrdine);
-                const content = this.formatMultiEntryCell(entries, isRequired, isP, isNa, config.hasOrdine);
+                const cls = this.getMultiEntryCellClass(entries, !isP, isP, isNa, config.hasOrdine);
+                const content = this.formatMultiEntryCell(entries, !isP, isP, isNa, config.hasOrdine);
                 return `<td class="${cls}">${content}</td>`;
             }).join('');
 
             return `
                 <tr class="${isP ? 'row-preventivo' : ''}">
-                    <td>
-                        <strong>${escapeHtml(drawing.numeroDisegno)}</strong>
-                        ${isP ? '<br><span class="badge-preventivo">PREVENTIVO</span>' : '<span class="badge-commessa">COMMESSA</span>'}
-                    </td>
+                    <td><strong>${escapeHtml(drawing.numeroDisegno)}</strong>
+                        ${isP ? '<br><span class="badge-preventivo">PREVENTIVO</span>' : '<span class="badge-commessa">COMMESSA</span>'}</td>
                     <td>${escapeHtml(drawing.cliente) || '-'}</td>
                     <td>${escapeHtml(drawing.cantiere) || '-'}</td>
                     <td>${escapeHtml(drawing.oggettoLavoro) || '-'}</td>
                     ${sectionCells}
-                    <td class="${notesData.hasNotes ? 'cell-notes-pending' : 'cell-notes-complete'}">
-                        ${notesData.html}
-                    </td>
-                    <td>
-                        ${this.canEdit() ? `
+                    <td class="${notesData.hasNotes ? 'cell-notes-pending' : 'cell-notes-complete'}">${notesData.html}</td>
+                    <td>${this.canEdit() ? `
                         <div class="actions-cell">
                             <button class="btn-toggle-commessa ${isP ? 'btn-activate' : 'btn-deactivate'}"
-                                    data-action="toggle" data-id="${drawing.id}"
-                                    title="${isP ? 'Attiva come Commessa' : 'Torna a Preventivo'}">
-                                ${isP ? '\u{1F680} Commessa' : '\u{1F4CB} Preventivo'}
-                            </button>
+                                data-action="toggle" data-id="${drawing.id}"
+                                title="${isP ? 'Attiva come Commessa' : 'Torna a Preventivo'}">
+                                ${isP ? '\u{1F680} Commessa' : '\u{1F4CB} Preventivo'}</button>
                             <button class="btn-edit" data-action="edit" data-id="${drawing.id}">\u270F\uFE0F Modifica</button>
                             <button class="btn-delete" data-action="delete" data-id="${drawing.id}">\u{1F5D1}\uFE0F Elimina</button>
-                        </div>
-                        ` : '<span style="color:var(--text-secondary);font-size:12px;">Solo lettura</span>'}
-                    </td>
+                        </div>` : '<span style="color:var(--text-secondary);font-size:12px;">Solo lettura</span>'}</td>
                 </tr>`;
         }).join('');
     }
 
-    // --- Filtri ---
     applyFilters() {
-        const fNumero = this.dom.filterNumero.value.toLowerCase();
-        const fCliente = this.dom.filterCliente.value.toLowerCase();
-        const fCantiere = this.dom.filterCantiere.value.toLowerCase();
-        const fOggetto = this.dom.filterOggetto.value.toLowerCase();
+        const fN = this.dom.filterNumero.value.toLowerCase();
+        const fC = this.dom.filterCliente.value.toLowerCase();
+        const fCa = this.dom.filterCantiere.value.toLowerCase();
+        const fO = this.dom.filterOggetto.value.toLowerCase();
 
         const filtered = this.drawings.filter(d => {
-            return d.numeroDisegno.toLowerCase().includes(fNumero)
-                && (d.cliente || '').toLowerCase().includes(fCliente)
-                && (d.cantiere || '').toLowerCase().includes(fCantiere)
-                && (d.oggettoLavoro || '').toLowerCase().includes(fOggetto);
+            return d.numeroDisegno.toLowerCase().includes(fN)
+                && (d.cliente || '').toLowerCase().includes(fC)
+                && (d.cantiere || '').toLowerCase().includes(fCa)
+                && (d.oggettoLavoro || '').toLowerCase().includes(fO);
         });
         this.renderTable(filtered);
     }
 
-    // --- Export/Import ---
+    // =====================================================
+    // EXPORT / IMPORT
+    // =====================================================
+
     async exportData() {
         if (this.drawings.length === 0) {
             this.toast.warning('Nessun dato da esportare.');
@@ -912,13 +1152,12 @@ class DrawingsManager {
 
         const dataToExport = {
             exportDate: new Date().toISOString(),
-            version: '3.0',
+            version: '4.0',
             totalDrawings: this.drawings.length,
             drawings: this.drawings
         };
         const jsonString = JSON.stringify(dataToExport, null, 2);
-        const dateStr = new Date().toISOString().split('T')[0];
-        const filename = `disegni_commesse_${dateStr}.json`;
+        const filename = `disegni_commesse_${new Date().toISOString().split('T')[0]}.json`;
 
         if ('showSaveFilePicker' in window) {
             try {
@@ -929,7 +1168,6 @@ class DrawingsManager {
                 const writable = await handle.createWritable();
                 await writable.write(jsonString);
                 await writable.close();
-                localStorage.setItem('lastExportDate', new Date().toISOString());
                 this.toast.success(`Esportati ${this.drawings.length} disegni!`);
                 return;
             } catch (err) {
@@ -945,8 +1183,7 @@ class DrawingsManager {
         link.click();
         document.body.removeChild(link);
         URL.revokeObjectURL(link.href);
-        localStorage.setItem('lastExportDate', new Date().toISOString());
-        this.toast.success(`Esportati ${this.drawings.length} disegni in ${filename}`);
+        this.toast.success(`Esportati ${this.drawings.length} disegni!`);
     }
 
     importData(event) {
@@ -980,12 +1217,10 @@ class DrawingsManager {
                     return;
                 }
 
-                // Migra tutti i disegni importati (retrocompatibilita)
                 drawingsToImport = drawingsToImport.map(d => this.migrateDrawing(d));
 
                 const currentCount = this.drawings.length;
-                const importCount = drawingsToImport.length;
-                let message = `Trovati ${importCount} disegni nel file.\n\n`;
+                let message = `Trovati ${drawingsToImport.length} disegni nel file.\n\n`;
                 if (currentCount > 0) {
                     message += `Hai attualmente ${currentCount} disegni.\n`;
                     message += 'OK = SOSTITUISCI tutti i dati attuali\nAnnulla = Non importare';
@@ -995,9 +1230,9 @@ class DrawingsManager {
 
                 if (confirm(message)) {
                     this.drawings = drawingsToImport;
-                    this.saveDrawings();
+                    this.saveDrawings(); // async, errori gestiti internamente
                     this.renderTable();
-                    this.toast.success(`Importati ${importCount} disegni!`);
+                    this.toast.success(`Importati ${drawingsToImport.length} disegni!`);
                 }
             } catch (error) {
                 this.toast.error('Il file non e un JSON valido: ' + error.message);

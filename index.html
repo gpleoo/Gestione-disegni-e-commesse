@@ -22,6 +22,13 @@
                     <span id="userRole">👤 Utente</span>
                     <button id="toggleAdminBtn" class="btn-admin">🔐 Login Admin</button>
                 </div>
+                <div class="file-storage-bar">
+                    <span id="fileStatus" class="file-status disconnected">
+                        <span class="file-status-dot disconnected"></span> Non connesso
+                    </span>
+                    <button id="fileConnectBtn" class="btn-secondary btn-file">📁 Apri File</button>
+                    <button id="fileDisconnectBtn" class="btn-secondary btn-file" style="display: none;">⛓️‍💥 Disconnetti</button>
+                </div>
                 <div class="data-actions">
                     <button id="exportBtn" class="btn-secondary" title="Esporta dati in file JSON">📤 Esporta</button>
                     <button id="importBtn" class="btn-secondary" title="Importa dati da file JSON">📥 Importa</button>
@@ -174,6 +181,26 @@
                     </div>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Modal Scelta File -->
+    <div id="fileModal" class="modal">
+        <div class="modal-content" style="max-width: 480px;">
+            <div class="modal-header">
+                <h2>📁 Connetti File Dati</h2>
+                <span class="close-file-modal" style="cursor:pointer;font-size:28px;color:var(--text-secondary);">&times;</span>
+            </div>
+            <div style="padding: 30px;">
+                <p style="color: var(--text-secondary); margin-bottom: 20px;">
+                    Scegli come salvare i dati sul tuo PC. I dati saranno salvati in un file JSON locale.
+                </p>
+                <div style="display: flex; flex-direction: column; gap: 12px;">
+                    <button id="fileOpenExisting" class="btn-primary" style="width:100%;">📂 Apri file esistente</button>
+                    <button id="fileCreateNew" class="btn-secondary" style="width:100%;">🆕 Crea nuovo file</button>
+                    <button class="btn-secondary close-file-modal" style="width:100%;">Annulla</button>
+                </div>
+            </div>
         </div>
     </div>
 
