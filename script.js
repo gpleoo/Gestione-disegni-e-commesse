@@ -11,7 +11,7 @@ const SECTIONS = {
     dxfPiastre: { label: 'DXF Piastre', addLabel: 'DXF Piastre', hasOrdine: false }
 };
 
-const MAX_ENTRIES = 5;
+const MAX_ENTRIES = 20;
 
 // --- Utility ---
 function escapeHtml(text) {
